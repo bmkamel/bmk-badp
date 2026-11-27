@@ -7,6 +7,7 @@ test('JSON mode requested only for structured calls',async()=>{
  const messages=[{role:'system',content:'Return JSON'},{role:'user',content:'Fixture'}];
  await send({messages,jsonOutput:true});await send({messages});
  assert.deepEqual(bodies[0].response_format,{type:'json_object'});
- assert.equal(bodies[0].reasoning_format,'hidden');
+ assert.equal(bodies[0].include_reasoning,false);
+ assert.equal(bodies[0].reasoning_format,undefined);
  assert.equal(bodies[1].response_format,undefined);
 });

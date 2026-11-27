@@ -1,0 +1,12 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {createHash} from 'node:crypto';
+import {createReviewEnvelope} from '../src/review-envelope.mjs';
+const base='a'.repeat(40);
+const proposal={baseCommit:base,status:'proposal-only',files:[{path:'src/demo.mjs',content:'export const x=1;'}]};
+const evidence={passed:true,status:'review-required',baseCommit:base,proposalDigest:createHash('sha256').update(JSON.stringify(proposal)).digest('hex'),checks:['syntax','tests','scope'].map(name=>({name,passed:true}))};
+const input={proposal,evidence,projectId:'badp',currentBase:base};
+test('verified proposal requires human review',()=>assert.equal(createReviewEnvelope(input).status,'human-review-required'));
+test('stale base rejected',()=>assert.throws(()=>createReviewEnvelope({...input,currentBase:'b'.repeat(40)})));
+test('changed proposal rejected',()=>assert.throws(()=>createReviewEnvelope({...input,proposal:{...proposal,files:[{path:'src/demo.mjs',content:'changed'}]}})));
+test('failed or incomplete checks rejected',()=>{for(const checks of [[],[{name:'syntax',passed:false}], [...evidence.checks,evidence.checks[0]]])assert.throws(()=>createReviewEnvelope({...input,evidence:{...evidence,checks}}));});

@@ -1,0 +1,35 @@
+name: BADP Source Isolation Fixture
+on:
+  workflow_dispatch:
+    inputs:
+      image_digest:
+        type: string
+        required: true
+      free_budget_confirmed:
+        type: boolean
+        default: false
+        required: true
+permissions:
+  contents: read
+concurrency:
+  group: badp-source-isolation
+  cancel-in-progress: false
+jobs:
+  verify:
+    if: github.ref == 'refs/heads/main' && inputs.free_budget_confirmed && vars.BADP_CLOUD_FIXTURE_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify fixed source fixture
+        env:
+          BADP_SMOKE_IMAGE: ${{ inputs.image_digest }}
+        run: |
+          [[ "$BADP_SMOKE_IMAGE" =~ ^(docker\.io/library/)?node@sha256:[a-f0-9]{64}$ ]] || exit 2
+          docker pull "$BADP_SMOKE_IMAGE"
+          node scripts/source-isolation-fixture.mjs

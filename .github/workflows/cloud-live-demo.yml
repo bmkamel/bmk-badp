@@ -1,0 +1,29 @@
+name: BADP Cloud Live Demo
+on:
+  workflow_dispatch:
+    inputs:
+      free_budget_confirmed:
+        type: boolean
+        default: false
+        required: true
+permissions:
+  contents: read
+concurrency:
+  group: badp-live-demo
+  cancel-in-progress: false
+jobs:
+  demo:
+    if: github.ref == 'refs/heads/main' && inputs.free_budget_confirmed && vars.BADP_LIVE_DEMO_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node scripts/cloud-live-demo.mjs
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          BADP_FREE_CONFIRMED: 'true'

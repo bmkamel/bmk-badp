@@ -1,0 +1,2 @@
+# Cloud development fixture
+A synthetic, no-provider, no-secret end-to-end test of plan, patch, static verification, preview and review using a temporary SQLite store. No generated code execution, deployment or repository write. The fixed fixture project scope is trusted by the wrapper; do not reuse that wrapper for arbitrary projects. CI is not a live model test. Durable quotas and state across runs, isolated source execution and trusted PR publishing remain prerequisites for autonomous operation.

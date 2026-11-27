@@ -1,0 +1,12 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {chooseModel} from '../src/router.mjs';
+import {validateApproval} from '../src/approvals.mjs';
+test('free provider only',()=>assert.equal(chooseModel([{id:'paid',enabled:true,costClass:'paid',tasks:['plan']},{id:'free',enabled:true,costClass:'free',tasks:['plan']}],'plan'),'free'));
+test('no unknown cost',()=>assert.equal(chooseModel([{id:'x',enabled:true,tasks:['plan']}],'plan'),null));
+const r={id:'r',projectId:'p',actorId:'a',digest:'d'};
+const a={requestId:'r',projectId:'p',actorId:'b',digest:'d',authorized:true,decision:'approve',expiresAt:100};
+test('independent approval',()=>assert.equal(validateApproval(r,a,99),true));
+test('self approval denied',()=>assert.equal(validateApproval(r,{...a,actorId:'a'},99),false));
+test('expired approval denied',()=>assert.equal(validateApproval(r,a,100),false));
+test('changed payload denied',()=>assert.equal(validateApproval(r,{...a,digest:'x'},99),false));

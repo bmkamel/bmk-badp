@@ -1,0 +1,2 @@
+# Identity integration gate
+The read-only API factory accepts a trusted identity adapter and a D1 store. The deployed Worker remains disconnected until a verified identity provider is configured. Never trust client-supplied actor IDs, roles, or unsigned proxy headers. Map verified issuer/subject to internal actor IDs. Validate signature, issuer, audience and expiry; deny unknown actors. Require CSRF protection for cookie-authenticated writes. No production credentials or user data in this public repository. Integration tests with a real provider remain mandatory.

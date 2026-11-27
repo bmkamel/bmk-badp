@@ -1,0 +1,21 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {createApi} from '../src/api.mjs';
+const store={projects:async id=>[{id:id==='a'?'p':'q'}],member:async(id,p)=>id==='a'&&p==='p',jobs:async(id,p)=>[{id:'j',projectId:p}]};
+const api=createApi({identify:async()=>({id:'a'}),store});
+const req=(path,options)=>new Request('https://example.test'+path,options);
+test('anonymous denied',async()=>assert.equal((await createApi({identify:async()=>null,store})(req('/api/projects'))).status,401));
+test('scoped projects',async()=>assert.deepEqual(await (await api(req('/api/projects'))).json(),{projects:[{id:'p'}]}));
+test('own jobs',async()=>assert.equal((await api(req('/api/projects/p/jobs'))).status,200));
+test('foreign jobs denied',async()=>assert.equal((await api(req('/api/projects/q/jobs'))).status,404));
+test('writes disabled',async()=>assert.equal((await api(req('/api/projects',{method:'POST'}))).status,405));
+test('authenticated developer can start a bounded run when configured',async()=>{const calls=[];const configured=createApi({identify:async()=>({id:'a'}),store:{...store,developer:async(id,project)=>id==='a'&&project==='p'},development:{start:async input=>{calls.push(input);return {id:'r',stage:'review'};}}});const r=await configured(req('/api/projects/p/runs',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({prompt:'Build a demo'})}));assert.equal(r.status,200);assert.equal(calls[0].projectId,'p');assert.equal(calls[0].actorId,'a');const oversized=await configured(req('/api/projects/p/runs',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({prompt:'ok',extra:'x'.repeat(6000)})}));assert.equal(oversized.status,400);assert.equal(calls.length,1);});
+test('identity failure closed',async()=>assert.equal((await createApi({identify:async()=>{throw Error('secret')},store})(req('/api/projects'))).status,503));
+test('run preview requires membership and enforces browser sandbox',async()=>{
+ const runs={getRun:async(id,p)=>id==='r'&&p==='p'?{id,projectId:p,stage:'review',repairs:0,revision:3}:null,latestArtifact:async()=>({kind:'static-html',html:'<script>evil()</script><main>demo</main>'})};
+ const endpoint=createApi({identify:async()=>({id:'a'}),store,runs});
+ const response=await endpoint(req('/api/projects/p/runs/r/preview'));
+ assert.equal(response.status,200);assert.match(response.headers.get('content-security-policy'),/sandbox/);assert.match(response.headers.get('content-security-policy'),/default-src 'none'/);
+ assert.equal((await endpoint(req('/api/projects/q/runs/r/preview'))).status,404);
+ assert.equal((await endpoint(req('/api/projects/p/runs/missing'))).status,404);
+});

@@ -1,3 +1,4 @@
+import {assertPilotContent} from '../src/pilot-policy.mjs';
 import {openHybridRuntime} from '../src/hybrid-runtime.mjs';
 import {validateSourceProposal} from '../src/source-proposal.mjs';
 import {createSourceVerification} from '../src/source-verification.mjs';
@@ -15,8 +16,8 @@ const dir=mkdtempSync(join(tmpdir(),'badp-source-'));let runtime;
 try{
  const limit={verifiedFree:true,minuteRequests:1,dailyRequests:1,dailyUnits:8000};
  runtime=openHybridRuntime({database:join(dir,'budget.sqlite'),limits:{groq:limit},groq:{apiKey:process.env.GROQ_API_KEY,model:'openai/gpt-oss-20b',freePlanVerified:true},publicSourceApproved:true});
- const inputFor=output=>{const value=JSON.parse(output);return {baseCommit,snapshot:new Map([[path,old]]),allowedPaths:[path],changes:[{path,beforeSha256:createHash('sha256').update(old).digest('hex'),content:value.patches?.length===1&&value.patches[0].path===path?value.patches[0].content:null}]};};
- const output=await runtime.generate({phase:'patch',dataClass:'public',prompt:'Return JSON {"patches":[{"path":"src/pilot-format.mjs","content":"..."}]}. Change this module so formatLabel trims surrounding whitespace while preserving String conversion. No imports or dependencies. Current source: '+old,accept:o=>validateSourceProposal(inputFor(o))});
+ const inputFor=output=>{const value=JSON.parse(output);return {baseCommit,snapshot:new Map([[path,old]]),allowedPaths:[path],changes:[{path,beforeSha256:createHash('sha256').update(old).digest('hex'),content:value.patches?.length===1&&value.patches[0].path===path?assertPilotContent(value.patches[0].content):null}]};};
+ const output=await runtime.generate({phase:'patch',dataClass:'public',prompt:'Return JSON {"patches":[{"path":"src/pilot-format.mjs","content":"..."}]}. Change this module so formatLabel trims surrounding whitespace while preserving String conversion. Use exactly export const formatLabel = value => String(value).trim(); with optional trailing newline. Current source: '+old,accept:o=>validateSourceProposal(inputFor(o))});
  const input=inputFor(output),proposal=validateSourceProposal(input);
  const verifier=createSourceVerification({async verify({proposal,proposalDigest}){
  const name='badp-pilot-'+crypto.randomUUID();

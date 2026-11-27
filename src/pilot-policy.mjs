@@ -1,0 +1,1 @@
+export function assertPilotContent(content){if(typeof content!=='string'||content.trim()!=='export const formatLabel = value => String(value).trim();')throw Error('pilot_content_not_allowlisted');return content;}

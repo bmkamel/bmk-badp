@@ -1,0 +1,31 @@
+name: BADP Auth Cloud Preflight
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/auth-cloud-preflight.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  preflight:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Verify configured credentials and D1 access
+        env:
+          CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLIENT_ID: ${{ secrets.CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.CLIENT_SECRET }}
+        run: |
+          set -eu
+          test -n "$CLIENT_ID" && test -n "$CLIENT_SECRET" && test -n "$CF_TOKEN"
+          echo "Required credential names configured"
+          base=https://api.cloudflare.com/client/v4/accounts/bae249433042911808956a8d6f145ba2
+          curl --fail --silent --show-error --max-time 20 -H "Authorization: Bearer $CF_TOKEN" "$base/d1/database?name=badp-auth-r1" -o "$RUNNER_TEMP/d1.json"
+          jq -e '.success == true' "$RUNNER_TEMP/d1.json" >/dev/null
+          echo "D1 read access verified"
+          curl --fail --silent --show-error --max-time 20 -H "Authorization: Bearer $CF_TOKEN" "$base/subscriptions" -o "$RUNNER_TEMP/plans.json"
+          jq -e '.success == true' "$RUNNER_TEMP/plans.json" >/dev/null
+          jq '[.result[] | {plan: .rate_plan.id, price: .price, state: .state}]' "$RUNNER_TEMP/plans.json"
+          echo "Read-only preflight complete; no resources created"

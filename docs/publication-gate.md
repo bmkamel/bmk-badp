@@ -1,0 +1,4 @@
+# Draft publication authorization
+The pure gate binds project and repository, immutable base/head, task goal, DEV branch, independently measured changes and a successful CI run identifier to a SHA-256 approval digest. It rejects missing project disclosure approval, self-approval, expired approval, altered evidence and other publication actions. It does not perform writes.
+
+All inputs are trusted service records, not agent assertions. CI provenance, reviewer authorization, actual Git object identity, current remote ref and atomic single-use approval consumption must be independently enforced by a future publisher. No GitHub credentials or network calls are introduced. Private projects require explicit disclosure policy before any publication. This gate cannot authorize merge or deployment. CI must execute in an isolated environment without production secrets.

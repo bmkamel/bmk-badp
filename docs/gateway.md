@@ -1,0 +1,5 @@
+# Unified AI Gateway — initial policy boundary
+
+The gateway serializes calls per instance for constrained local hardware, rejects paid or disabled providers, and falls back only among eligible providers. Remote execution requires explicit public data classification, verified free-only operator configuration, and a successful admission reservation. The default runner supplies no public classification; remote execution therefore stays denied. The admission interface is not a durable implementation, and a free label cannot establish zero billing. No cloud providers are configured in this change.
+
+Next: durable account-wide quota accounting, provider-specific verified caps and privacy review, cancellation and restart recovery, and provider benchmarks. Inspect ERP adapters before reuse; never copy credentials. The gateway does not constitute a sandbox, global concurrency limit, or production cost guarantee. Use mocked tests without network or keys.

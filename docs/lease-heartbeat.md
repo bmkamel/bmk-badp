@@ -1,0 +1,2 @@
+# Lease heartbeat
+The runner renews its 120-second lease every 30 seconds while an operation is pending, serializes renewals and fences results when renewal fails. The local demo now uses the local-only gateway. A lost lease does not cancel an in-flight model request; duplicate external execution is still possible after failure or suspension. Durable local storage, scheduler, cancellation, and live runtime verification remain pending. No remote model enabled.

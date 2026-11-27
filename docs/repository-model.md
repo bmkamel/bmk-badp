@@ -1,0 +1,2 @@
+# Repository model interface
+The repository-specific model adapter accepts an injected transport and emits bounded, structured replacement proposals for explicitly selected existing files. It is compatible with the candidate pipeline's generate contract. It does not itself authenticate a provider or guarantee zero cost; remote transport must independently enforce public data classification, verified free-only admission, secret screening, response limits and timeouts. Tests use a mock transport. No cloud credentials, endpoint activation, or live inference were introduced.

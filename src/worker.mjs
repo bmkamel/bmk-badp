@@ -1,7 +1,9 @@
-// R1 preview: no authenticated API or external execution enabled.
-export default { async fetch(request) {
- const url=new URL(request.url);
- const headers={'content-type':'application/json; charset=utf-8','cache-control':'no-store','x-content-type-options':'nosniff'};
- if(request.method==='GET' && url.pathname==='/health') return new Response(JSON.stringify({service:'BADP',stage:'preview'}),{headers});
- return new Response(JSON.stringify({error:'not_available'}),{status:404,headers});
+import {createApi} from './api.mjs';
+import {d1Store} from './d1-store.mjs';
+import {accessIdentity} from './identity.mjs';
+export default {async fetch(request,env={}) {
+ const path=new URL(request.url).pathname;
+ if(env.DB && env.ACCESS_ISSUER && env.ACCESS_AUDIENCE && path.startsWith('/api/')) return createApi({identify:accessIdentity({issuer:env.ACCESS_ISSUER,audience:env.ACCESS_AUDIENCE,db:env.DB}),store:d1Store(env.DB)})(request);
+ if(request.method==='GET'&&path==='/health')return Response.json({service:'BADP',stage:'preview'},{headers:{'cache-control':'no-store'}});
+ return Response.json({error:'not_available'},{status:404,headers:{'cache-control':'no-store'}});
 }};

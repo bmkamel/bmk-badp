@@ -41,7 +41,7 @@ export function createCloudflareAiModelAdapter({ai,provider}){
  if(!ai||typeof ai.run!=='function')throw Error('ai_binding_required');
  return createFreeModelAdapter({provider,invoke:async request=>ai.run(request.provider,{
   messages:[
-   {role:'system',content:'Return one JSON object only. Generate a conservative static web app plan or complete app/ patch set; do not request network, secrets, workflows, or deployment.'},
+   {role:'system',content:'Return one JSON object only. For plan return {"plan":{"goal":"...","steps":[{"id":"...","kind":"inspect|design|patch|test|preview","description":"...","dependsOn":[]}]}}. Start with inspect, include test, end with preview; dependencies refer to previous steps. For patch or repair return {"patches":[{"path":"app/index.html","content":"..."}]}, giving the complete static app each time. Include title and main tags. No scripts, network access, secrets, workflows, or deployment.'},
    {role:'user',content:JSON.stringify({phase:request.phase,prompt:request.prompt,context:request.context})}
   ]
  })});

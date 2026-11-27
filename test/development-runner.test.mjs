@@ -43,3 +43,16 @@ test('executor contract failure blocks instead of entering an autonomous repair 
  const result=await runner.start({projectId:'project-4',actorId:'actor-4',prompt:'Create a demo'});
  assert.equal(result.stage,'blocked');assert.equal(result.repairs,1);
 });
+
+test('resumes an interrupted run from its persisted patch stage',async()=>{
+ let n=0;const store=createMemoryRunStore({idFactory:()=>`artifact-${++n}`});
+ let run=await store.createRun({id:'resume-1',projectId:'p',goal:'Demo'});
+ await store.saveArtifact(run,{type:'plan',body:{plan}});
+ run=await store.advanceRun(run,{runId:run.id,projectId:run.projectId,stage:'plan',result:'ok'});
+ const phases=[];const model={generate:async({phase})=>{phases.push(phase);return {patches:fixed};}};
+ const runner=createDevelopmentRunner({model,executor:createStaticSandboxExecutor(),store});
+ const result=await runner.resume({id:'resume-1',projectId:'p'});
+ assert.equal(result.stage,'review');assert.deepEqual(phases,['patch']);
+ assert.equal((await store.latestArtifact('resume-1','p','preview')).kind,'static-html');
+ await assert.rejects(runner.resume({id:'resume-1',projectId:'other'}),/unknown_run/);
+});

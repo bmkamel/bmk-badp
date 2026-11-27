@@ -20,7 +20,7 @@ export function d1RunStore(db,{idFactory=makeId}={}){
    const next=advance(run,event),nextRevision=run.revision+1,eventId=idFactory();
    if(!validId(eventId))throw Error('invalid_event_id');
    const update=db.prepare('UPDATE development_runs SET stage=?,repairs=?,revision=? WHERE id=? AND project_id=? AND revision=?').bind(next.stage,next.repairs,nextRevision,run.id,run.projectId,run.revision);
-   const eventInsert=db.prepare('INSERT INTO development_events(id,run_id,project_id,stage,outcome) SELECT ?,?,?,?,? WHERE EXISTS (SELECT 1 FROM development_runs WHERE id=? AND project_id=? AND revision=?)').bind(eventId,run.id,run.projectId,run.stage,event.result,run.id,run.projectId,nextRevision);
+   const eventInsert=db.prepare('INSERT INTO development_events(id,run_id,project_id,stage,outcome) SELECT ?,?,?,?,? WHERE changes()=1').bind(eventId,run.id,run.projectId,run.stage,event.result);
    const results=await db.batch([update,eventInsert]);
    if(results?.[0]?.meta?.changes!==1)throw Error('stale_run');
    return {...next,revision:nextRevision};
@@ -28,13 +28,19 @@ export function d1RunStore(db,{idFactory=makeId}={}){
   async saveArtifact(run,artifact){
    if(!run||!validId(run.id)||!validId(run.projectId))throw Error('invalid_run');
    const safe=validateArtifact(artifact),id=idFactory();if(!validId(id))throw Error('invalid_artifact_id');
-   await db.prepare('INSERT INTO development_artifacts(id,run_id,project_id,type,content_json) VALUES (?,?,?,?,?)').bind(id,run.id,run.projectId,safe.type,JSON.stringify(safe.body)).run();
+   const result=await db.prepare('INSERT INTO development_artifacts(id,run_id,project_id,type,content_json) SELECT ?,?,?,?,? WHERE EXISTS (SELECT 1 FROM development_runs WHERE id=? AND project_id=? AND revision=? AND stage=?)').bind(id,run.id,run.projectId,safe.type,JSON.stringify(safe.body),run.id,run.projectId,run.revision,run.stage).run();
+   if(result?.meta?.changes!==1)throw Error('stale_run');
    return {id,runId:run.id,projectId:run.projectId,...safe};
   },
   async getRun(id,projectId){
    if(!validId(id)||!validId(projectId))return null;
    const row=await db.prepare('SELECT id,project_id AS projectId,goal,stage,repairs,revision,created_at AS createdAt FROM development_runs WHERE id=? AND project_id=?').bind(id,projectId).first();
    return row||null;
+  },
+  async latestArtifact(id,projectId,type){
+   if(!validId(id)||!validId(projectId)||!['plan','patch','test','preview','failure'].includes(type))return null;
+   const row=await db.prepare('SELECT content_json FROM development_artifacts WHERE run_id=? AND project_id=? AND type=? ORDER BY rowid DESC LIMIT 1').bind(id,projectId,type).first();
+   return row?JSON.parse(row.content_json):null;
   }
  });
 }

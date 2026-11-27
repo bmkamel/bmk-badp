@@ -4,61 +4,55 @@ import {validatePatches} from './static-sandbox.mjs';
 const validId=value=>typeof value==='string'&&/^[a-zA-Z0-9_-]{1,128}$/.test(value);
 const publicRun=run=>({id:run.id,projectId:run.projectId,stage:run.stage,repairs:run.repairs,revision:run.revision});
 
-class StageFailure extends Error{constructor(stage){super('stage_failed');this.stage=stage;}}
-
-// Orchestrates only a bounded, static-app slice. Every output is validated and
-// persisted before its state transition; the final state deliberately waits for
-// independent review instead of publishing anything.
+// Recovery is explicit and sequential: the caller must ensure one active
+// runner per run. The Worker does not enable this executor yet.
 export function createDevelopmentRunner({model,executor,store,idFactory=()=>crypto.randomUUID()}){
- if(!model||typeof model.generate!=='function'||!executor||typeof executor.execute!=='function'||!store||typeof store.createRun!=='function'||typeof store.advanceRun!=='function'||typeof store.saveArtifact!=='function')throw Error('invalid_runner_dependencies');
- const step=async(run,result)=>store.advanceRun(run,{runId:run.id,projectId:run.projectId,stage:run.stage,result});
- const save=async(run,type,body)=>store.saveArtifact(run,{type,body});
- const block=async(run,stage)=>{
-  await save(run,'failure',{stage,code:'operation_failed'});
-  const next=await step(run,'fail');
-  // A malformed executor result is not a generated-app test failure: do not
-  // let a model retry around a broken execution boundary.
-  return stage==='test'&&next.stage==='repair'?step(next,'fail'):next;
- };
- async function generatePlan(run,prompt,actorId){
-  const output=await model.generate({phase:'plan',prompt,context:{runId:run.id,projectId:run.projectId,actorId}});
-  if(!validatePlan(output.plan))throw new StageFailure('plan');
-  await save(run,'plan',{plan:output.plan});return output.plan;
- }
- async function generatePatches(run,phase,prompt,context){
-  const output=await model.generate({phase,prompt,context});
-  let patches;try{patches=validatePatches(output.patches);}catch{throw new StageFailure(phase==='repair'?'repair':'patch');}
-  await save(run,'patch',{phase,patches});return patches;
- }
- async function execute(run,patches){
-  try{
-   const result=await executor.execute({run:publicRun(run),patches});
-   if(!result||typeof result.passed!=='boolean'||!Array.isArray(result.checks))throw Error('invalid_executor_result');
-   await save(run,'test',{passed:result.passed,checks:result.checks});return result;
-  }catch(error){throw new StageFailure('test');}
+ if(!model||typeof model.generate!=='function'||!executor||typeof executor.execute!=='function'||!store||['createRun','advanceRun','saveArtifact','getRun','latestArtifact'].some(k=>typeof store[k]!=='function'))throw Error('invalid_runner_dependencies');
+ const step=(run,result)=>store.advanceRun(run,{runId:run.id,projectId:run.projectId,stage:run.stage,result});
+ const save=(run,type,body)=>store.saveArtifact(run,{type,body});
+ async function artifact(run,type){const value=await store.latestArtifact(run.id,run.projectId,type);if(!value)throw Error('missing_checkpoint');return value;}
+ async function drive(initial){
+  let run=initial;
+  while(!['review','complete','blocked'].includes(run.stage)){
+   try{
+    if(run.stage==='plan'){
+     const output=await model.generate({phase:'plan',prompt:run.goal,context:{runId:run.id,projectId:run.projectId}});
+     if(!validatePlan(output.plan))throw Error('invalid_plan');
+     await save(run,'plan',{plan:output.plan});run=await step(run,'ok');
+    }else if(run.stage==='patch'||run.stage==='repair'){
+     const plan=(await artifact(run,'plan')).plan;
+     const context=run.stage==='repair'?{plan,checks:(await artifact(run,'test')).checks,patches:(await artifact(run,'patch')).patches}:{plan};
+     const output=await model.generate({phase:run.stage,prompt:run.goal,context});
+     const patches=validatePatches(output.patches);
+     await save(run,'patch',{phase:run.stage,patches});run=await step(run,'ok');
+    }else if(run.stage==='test'){
+     const patches=(await artifact(run,'patch')).patches;
+     const result=await executor.execute({run:publicRun(run),patches});
+     if(!result||typeof result.passed!=='boolean'||!Array.isArray(result.checks)||(result.passed&&(!result.preview||typeof result.preview!=='object')))throw Error('invalid_executor_result');
+     await save(run,'test',result);run=await step(run,result.passed?'ok':'fail');
+    }else if(run.stage==='preview'){
+     const result=await artifact(run,'test');
+     if(!result.passed||!result.preview)throw Error('missing_preview');
+     await save(run,'preview',result.preview);run=await step(run,'ok');
+    }else throw Error('invalid_stage');
+   }catch(error){
+    if(error?.message==='stale_run')throw error;
+    await save(run,'failure',{stage:run.stage,code:'operation_failed'});
+    const previous=run.stage;run=await step(run,'fail');
+    if(previous==='test'&&run.stage==='repair')run=await step(run,'fail');
+   }
+  }
+  return publicRun(run);
  }
  return Object.freeze({
   async start({id=idFactory(),projectId,actorId,prompt}){
    if(!validId(id)||!validId(projectId)||!validId(actorId)||typeof prompt!=='string'||!prompt.trim()||prompt.length>4000)throw Error('invalid_start_request');
-   let run=await store.createRun({id,projectId,goal:prompt});
-   try{
-    const plan=await generatePlan(run,prompt.trim(),actorId);run=await step(run,'ok');
-    let patches=await generatePatches(run,'patch',prompt.trim(),{plan});run=await step(run,'ok');
-    let result=await execute(run,patches);
-    while(!result.passed){
-     run=await step(run,'fail');
-     if(run.stage==='blocked')return publicRun(run);
-     patches=await generatePatches(run,'repair',prompt.trim(),{plan,checks:result.checks,patches});
-     run=await step(run,'ok');result=await execute(run,patches);
-    }
-    run=await step(run,'ok');
-    if(!result.preview||typeof result.preview!=='object'||Array.isArray(result.preview))throw new StageFailure('preview');
-    await save(run,'preview',result.preview);run=await step(run,'ok');
-    return publicRun(run);
-   }catch(error){
-    const stage=error instanceof StageFailure?error.stage:run.stage;
-    return publicRun(await block(run,stage));
-   }
+   return drive(await store.createRun({id,projectId,goal:prompt}));
+  },
+  async resume({id,projectId}){
+   if(!validId(id)||!validId(projectId))throw Error('invalid_resume_request');
+   const run=await store.getRun(id,projectId);if(!run)throw Error('unknown_run');
+   return drive(run);
   }
  });
 }

@@ -4,7 +4,7 @@ This slice is deliberately limited to an inert, static application tree under `a
 
 ## Durable state
 
-`development_runs` carries the current stage, repair count, and optimistic revision. `development_events` records every successful state transition. Migration `0006_execution_artifacts.sql` stores the plan, full patch sets, test results, failure marker, and preview payload in the isolated BADP D1 database. A transition uses a revision-guarded update plus conditional event insert in one D1 batch; stale writers fail closed.
+`development_runs` carries the current stage, repair count, and optimistic revision. `development_events` records every successful state transition. Migration `0006_execution_artifacts.sql` stores the plan, full patch sets, test results, failure marker, and preview payload in the isolated BADP D1 database. A transition uses a revision-guarded update plus conditional event insert in one D1 batch; stale writers fail closed. The runner can resume from a persisted stage, but requires an external single-runner guarantee; there is no lease or automatic scheduler yet. An interrupted stage may repeat a model call.
 
 ## Bounded recovery
 
@@ -12,8 +12,8 @@ Only a failing static test may enter `repair`. The existing state machine allows
 
 ## Model configuration
 
-The Worker activates runs only when all of these are present: `ENABLE_DEVELOPMENT_RUNS=true`, a D1 binding, an AI binding, `FREE_MODEL_COST_CLASS=free`, and `FREE_MODEL_ID`. There is no default model and no paid fallback. The model identifier must be checked against the provider's current free tier before setting these values. No resource, secret, binding, route, or deployment is created by this change.
+Worker inference is disabled. Merely setting a model's cost class to free does not enforce a billing cap: on a paid Workers plan, inference beyond the free allocation can incur charges. Before enabling inference, verify the account's actual plan, free model eligibility, and enforceable limits. No resource, secret, binding, route, or deployment is created by this change.
 
 ## Preview boundary
 
-The preview artifact is stored data, not a public URL. The R0 executor accepts only HTML/CSS/JS/JSON/Markdown files below the `app/` tree, requires a local `app/index.html`, and checks for a title, a `<main>` landmark, no scripts in the entrypoint, no external references, and no `fetch`. A later, explicitly approved R3 executor can replace this with a dedicated isolated build runner while preserving the same runner interface and durable state contract.
+The preview artifact is stored data. The authenticated run preview endpoint returns the entrypoint HTML with a restrictive CSP sandbox, no network or scripts, and no caching. It does not yet serve separate CSS or other files. The R0 executor validates the `app/` tree and checks title and main landmarks. A later isolated build runner and asset-serving design remain necessary for interactive applications. Regex checks are not an HTML security boundary; the response CSP is essential.

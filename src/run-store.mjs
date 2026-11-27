@@ -28,12 +28,13 @@ export function createMemoryRunStore({idFactory=()=>crypto.randomUUID()}={}){
   },
   async saveArtifact(run,artifact){
    const current=runs.get(run?.id);
-   if(!current||current.projectId!==run.projectId)throw Error('unknown_run');
+   if(!current||current.projectId!==run.projectId||current.revision!==run.revision||current.stage!==run.stage)throw Error('stale_run');
    const safe=validateArtifact(artifact);const list=artifacts.get(run.id);
    const saved={id:idFactory(),runId:run.id,projectId:run.projectId,...safe};
    list.push(saved);return clone(saved);
   },
-  async getRun(id){return runs.has(id)?clone(runs.get(id)):null;},
+  async getRun(id,projectId){const run=runs.get(id);return run&&run.projectId===projectId?clone(run):null;},
+  async latestArtifact(id,projectId,type){const found=(artifacts.get(id)||[]).filter(item=>item.projectId===projectId&&item.type===type).at(-1);return found?clone(found.body):null;},
   async eventsFor(id){return clone(events.get(id)||[]);},
   async artifactsFor(id){return clone(artifacts.get(id)||[]);}
  });

@@ -15,7 +15,7 @@ test('D1 store persists a run and uses an optimistic batched transition',async()
  const run=await store.createRun({id:'run-1',projectId:'project-1',goal:'Demo'});
  const next=await store.advanceRun(run,{runId:'run-1',projectId:'project-1',stage:'plan',result:'ok'});
  await store.saveArtifact(next,{type:'plan',body:{plan:'saved'}});
- assert.equal(next.stage,'patch');assert.equal(next.revision,1);assert.match(calls.find(c=>c.batch).batch[1].sql,/WHERE EXISTS/);assert.equal(calls.at(-1).args[3],'plan');
+ assert.equal(next.stage,'patch');assert.equal(next.revision,1);assert.match(calls.find(c=>c.batch).batch[1].sql,/changes\(\)=1/);assert.equal(calls.at(-1).args[3],'plan');
 });
 test('D1 store rejects a stale revision',async()=>{
  const {db}=fakeD1(0);const store=d1RunStore(db,{idFactory:()=> 'event-1'});

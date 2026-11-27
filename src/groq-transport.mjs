@@ -11,7 +11,7 @@ export function createGroqTransport({apiKey,model='openai/gpt-oss-120b',admissio
   try{
    const permit=await admission.reserve({providerId:'groq',model,phase:'patch',maxCompletionTokens:2048,inputBytes:Buffer.byteLength(JSON.stringify(messages))});
    if(permit?.allowed!==true)throw Error('groq_quota_denied');
-   const r=await fetcher('https://api.groq.com/openai/v1/chat/completions',{method:'POST',redirect:'error',signal:AbortSignal.timeout(90000),headers:{authorization:'Bearer '+apiKey,'content-type':'application/json'},body:JSON.stringify({model,messages:messages.map(m=>({role:m.role,content:m.content})),max_completion_tokens:2048,temperature:0,stream:false,...(jsonOutput===true?{response_format:{type:'json_object'},reasoning_effort:'low',reasoning_format:'hidden'}:{})})});
+   const r=await fetcher('https://api.groq.com/openai/v1/chat/completions',{method:'POST',redirect:'error',signal:AbortSignal.timeout(90000),headers:{authorization:'Bearer '+apiKey,'content-type':'application/json'},body:JSON.stringify({model,messages:messages.map(m=>({role:m.role,content:m.content})),max_completion_tokens:2048,temperature:0,stream:false,...(jsonOutput===true?{response_format:{type:'json_object'},reasoning_effort:'low',include_reasoning:false}:{})})});
    if(r.status===429)throw Error('groq_rate_limit');
    if(!r.ok||!r.body)throw Error('groq_unavailable');
    const reader=r.body.getReader();let length=0;const chunks=[];

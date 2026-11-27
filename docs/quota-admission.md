@@ -1,0 +1,2 @@
+# Durable quota admission
+Use a dedicated BADP SQLite file and operator-verified free-plan limits. Each reservation atomically consumes one daily request; UTC day boundaries apply. Unknown providers and database write failures deny admission. No refunds are issued. All workers must share the same database file. This is a request-count guard only: token limits, shorter rate windows, clock integrity, provider billing verification and integration remain required before live cloud use. Never point this component at an existing project database.

@@ -1,0 +1,42 @@
+name: BADP Provider Cloud Smoke
+on:
+  workflow_dispatch:
+    inputs:
+      provider:
+        type: choice
+        options:
+          - groq
+          - openrouter
+        required: true
+      free_budget_confirmed:
+        type: boolean
+        default: false
+        required: true
+permissions:
+  contents: read
+concurrency:
+  group: badp-provider-cloud-smoke
+  cancel-in-progress: false
+jobs:
+  smoke:
+    if: github.ref == 'refs/heads/main' && inputs.free_budget_confirmed && vars.BADP_PROVIDER_SMOKE_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Verify Node runtime
+        run: node -e 'if(Number(process.versions.node.split(".")[0])<22)process.exit(1)'
+      - name: Groq synthetic smoke
+        if: inputs.provider == 'groq'
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          BADP_FREE_CONFIRMED: 'true'
+        run: node scripts/provider-cloud-smoke.mjs groq
+      - name: OpenRouter synthetic smoke
+        if: inputs.provider == 'openrouter'
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          BADP_FREE_CONFIRMED: 'true'
+        run: node scripts/provider-cloud-smoke.mjs openrouter

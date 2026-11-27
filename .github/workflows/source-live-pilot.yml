@@ -1,13 +1,10 @@
 name: BADP Source Live Pilot
 on:
   workflow_dispatch:
-    inputs:
-      free_budget_confirmed:
-        type: boolean
-        default: false
-      groq_free_verified:
-        type: boolean
-        default: false
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/source-live-pilot.yml'
 permissions:
   contents: read
 concurrency:
@@ -15,7 +12,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   pilot:
-    if: github.ref == 'refs/heads/main' && inputs.free_budget_confirmed && inputs.groq_free_verified && vars.BADP_LIVE_DEMO_ENABLED == 'true'
+    if: github.ref == 'refs/heads/main' && vars.BADP_LIVE_DEMO_ENABLED == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

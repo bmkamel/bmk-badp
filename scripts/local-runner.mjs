@@ -1,3 +1,4 @@
+import {runScheduler,withLocalWorkerLock} from '../src/local-scheduler.mjs';
 import {mkdirSync} from 'node:fs';
 import {join} from 'node:path';
 import {openLocalStore} from '../src/local-sqlite.mjs';
@@ -8,7 +9,7 @@ import {createStaticSandboxExecutor} from '../src/static-sandbox.mjs';
 const [command,...args]=process.argv.slice(2);
 let local;
 try{
- if(!['enqueue','drain','status'].includes(command))throw Error('usage: enqueue <prompt> | drain | status <run-id>');
+ if(!['enqueue','drain','status','watch'].includes(command))throw Error('usage: enqueue <prompt> | drain | watch | status <run-id>');
  const projectId='local-demo';
  mkdirSync('.badp-local',{recursive:true,mode:0o700});
  local=openLocalStore(join('.badp-local','state.sqlite'));
@@ -24,9 +25,17 @@ try{
  }else{
   const model=createModelGateway({providers:[{id:'ollama',location:'local',enabled:true,costClass:'free',tasks:['plan','patch','repair'],adapter:createOllamaAdapter()}]});
   const runner=createDevelopmentRunner({model,executor:createStaticSandboxExecutor(),store});
-  for(const run of local.pending(projectId)){
-   try{console.log(JSON.stringify(await runner.resume(run)));}catch{console.error('Run deferred: '+run.id);process.exitCode=1;}
-  }
+  const controller=new AbortController();
+  const stop=()=>controller.abort();
+  process.once('SIGINT',stop);process.once('SIGTERM',stop);
+  try{
+   await withLocalWorkerLock(join('.badp-local','worker.sqlite'),()=>runScheduler({
+    pending:()=>local.pending(projectId),resume:run=>runner.resume(run),
+    once:command==='drain',signal:controller.signal,
+    onResult:result=>console.log(JSON.stringify(result)),
+    onError:()=>{console.error('Run deferred');if(command==='drain')process.exitCode=1;}
+   }));
+  }finally{process.removeListener('SIGINT',stop);process.removeListener('SIGTERM',stop);}
  }
 }catch{console.error('Local runner failed. Check command, dedicated database and local setup.');process.exitCode=1;}
 finally{local?.close();}

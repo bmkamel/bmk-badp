@@ -1,0 +1,2 @@
+# Runner adapter
+Validates structured model artifacts before the development runner consumes them. Default classification is private. Only trusted project configuration may approve public prompts; project approval alone is not proof that a particular goal contains no secrets. The existing runner omits project identity in patch and repair context, so those phases remain private until trusted identity propagation is implemented. Current executor accepts static app patches only, not BADP source changes. No live deployment or autonomous self-modification is enabled.

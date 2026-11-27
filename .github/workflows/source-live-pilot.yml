@@ -17,6 +17,8 @@ jobs:
   pilot:
     if: github.ref == 'refs/heads/main' && vars.BADP_LIVE_DEMO_ENABLED == 'true'
     runs-on: ubuntu-latest
+    outputs:
+      proposal_ready: ${{ steps.generate.outputs.proposal_ready }}
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -32,13 +34,17 @@ jobs:
           [[ "$image" =~ ^(docker\.io/library/)?node@sha256:[a-f0-9]{64}$ ]] || exit 2
           printf 'BADP_SMOKE_IMAGE=%s\n' "$image" >> "$GITHUB_ENV"
       - name: Generate and verify proposal
+        id: generate
         env:
           BADP_FREE_CONFIRMED: 'true'
           BADP_GROQ_FREE_VERIFIED: 'true'
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           BADP_PILOT_OUTPUT: ${{ runner.temp }}/source-review.json
-        run: node scripts/source-live-pilot.mjs
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        run: |
+          node scripts/source-live-pilot.mjs
+          if test -f "$BADP_PILOT_OUTPUT"; then echo 'proposal_ready=true' >> "$GITHUB_OUTPUT"; fi
+      - if: steps.generate.outputs.proposal_ready == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: source-review
           path: ${{ runner.temp }}/source-review.json
@@ -46,7 +52,7 @@ jobs:
           if-no-files-found: error
   publish:
     needs: pilot
-    if: github.ref == 'refs/heads/main' && needs.pilot.result == 'success'
+    if: github.ref == 'refs/heads/main' && needs.pilot.result == 'success' && needs.pilot.outputs.proposal_ready == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 3
     permissions:

@@ -1,0 +1,12 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {createApi} from '../src/api.mjs';
+const store={projects:async id=>[{id:id==='a'?'p':'q'}],member:async(id,p)=>id==='a'&&p==='p',jobs:async(id,p)=>[{id:'j',projectId:p}]};
+const api=createApi({identify:async()=>({id:'a'}),store});
+const req=(path,options)=>new Request('https://example.test'+path,options);
+test('anonymous denied',async()=>assert.equal((await createApi({identify:async()=>null,store})(req('/api/projects'))).status,401));
+test('scoped projects',async()=>assert.deepEqual(await (await api(req('/api/projects'))).json(),{projects:[{id:'p'}]}));
+test('own jobs',async()=>assert.equal((await api(req('/api/projects/p/jobs'))).status,200));
+test('foreign jobs denied',async()=>assert.equal((await api(req('/api/projects/q/jobs'))).status,404));
+test('writes disabled',async()=>assert.equal((await api(req('/api/projects',{method:'POST'}))).status,405));
+test('identity failure closed',async()=>assert.equal((await createApi({identify:async()=>{throw Error('secret')},store})(req('/api/projects'))).status,503));

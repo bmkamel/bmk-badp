@@ -2,7 +2,7 @@ name: BADP Preview Deploy
 on:
   push:
     branches: [main]
-    paths: ['preview/worker.mjs', '.github/workflows/preview-deploy.yml']
+    paths: ['preview/**', '.github/workflows/preview-deploy.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -26,6 +26,6 @@ jobs:
         run: |
           set -eu
           test -n "$CF_TOKEN"
-          curl --fail --silent --show-error --max-time 30 -X PUT -H "Authorization: Bearer $CF_TOKEN" -F 'metadata={"main_module":"worker.mjs","compatibility_date":"2026-01-01"};type=application/json' -F 'worker.mjs=@preview/worker.mjs;type=application/javascript+module' 'https://api.cloudflare.com/client/v4/accounts/bae249433042911808956a8d6f145ba2/workers/scripts/badp-r1-preview' -o "$RUNNER_TEMP/deploy.json"
+          curl --fail --silent --show-error --max-time 30 -X PUT -H "Authorization: Bearer $CF_TOKEN" -F 'metadata={"main_module":"worker.mjs","compatibility_date":"2026-01-01"};type=application/json' -F 'worker.mjs=@preview/worker.mjs;type=application/javascript+module' -F 'auth.mjs=@preview/auth.mjs;type=application/javascript+module' -F 'oauth.mjs=@preview/oauth.mjs;type=application/javascript+module' -F 'auth-state.mjs=@preview/auth-state.mjs;type=application/javascript+module' -F 'auth-routes.mjs=@preview/auth-routes.mjs;type=application/javascript+module' 'https://api.cloudflare.com/client/v4/accounts/bae249433042911808956a8d6f145ba2/workers/scripts/badp-r1-preview' -o "$RUNNER_TEMP/deploy.json"
           jq -e '.success == true' "$RUNNER_TEMP/deploy.json" >/dev/null
-          curl --fail --silent --show-error --retry 3 --retry-delay 3 --max-time 20 'https://badp-r1-preview.bmkamel.workers.dev/api/health' | jq -e '.version == "private-boundary-1"'
+          curl --fail --silent --show-error --retry 3 --retry-delay 3 --max-time 20 'https://badp-r1-preview.bmkamel.workers.dev/api/health' | jq -e '.version == "auth-boundary-2"'

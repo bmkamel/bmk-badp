@@ -18,8 +18,8 @@ export function openHybridRuntime({database,limits,groq,openrouter,local,publicS
  busy=true;
  try{
  if(request.dataClass==='public'){
- const messages=[{role:'system',content:'Return the requested development artifact. Phase: '+request.phase},{role:'user',content:request.prompt}];
- for(const send of transports){try{return await send({messages});}catch{}}
+ const messages=[{role:'system',content:'Return only a valid JSON object for the requested development artifact. Phase: '+request.phase},{role:'user',content:request.prompt}];
+ for(const send of transports){try{return await send({messages,jsonOutput:true});}catch{}}
  }
  if(typeof local?.generate==='function')return await local.generate(request);
  throw Error('no_eligible_model');

@@ -2,9 +2,6 @@ name: BADP Source Live Pilot
 on:
   workflow_dispatch:
     inputs:
-      image_digest:
-        type: string
-        required: true
       free_budget_confirmed:
         type: boolean
         default: false
@@ -29,14 +26,13 @@ jobs:
         with:
           node-version: '22'
       - name: Pull immutable sandbox image
-        env:
-          BADP_SMOKE_IMAGE: ${{ inputs.image_digest }}
         run: |
-          [[ "$BADP_SMOKE_IMAGE" =~ ^(docker\.io/library/)?node@sha256:[a-f0-9]{64}$ ]] || exit 2
-          docker pull "$BADP_SMOKE_IMAGE"
+          docker pull docker.io/library/node:22-bookworm-slim
+          image=$(docker image inspect docker.io/library/node:22-bookworm-slim --format '{{index .RepoDigests 0}}')
+          [[ "$image" =~ ^(docker\.io/library/)?node@sha256:[a-f0-9]{64}$ ]] || exit 2
+          printf 'BADP_SMOKE_IMAGE=%s\n' "$image" >> "$GITHUB_ENV"
       - name: Generate and verify proposal
         env:
-          BADP_SMOKE_IMAGE: ${{ inputs.image_digest }}
           BADP_FREE_CONFIRMED: 'true'
           BADP_GROQ_FREE_VERIFIED: 'true'
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}

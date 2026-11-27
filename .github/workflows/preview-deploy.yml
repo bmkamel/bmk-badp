@@ -1,0 +1,30 @@
+name: BADP Preview Deploy
+on:
+  push:
+    branches: [main]
+    paths: ['preview/worker.mjs', '.github/workflows/preview-deploy.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Validate preview
+        run: |
+          node --check preview/worker.mjs
+          node --input-type=module -e 'import w from "./preview/worker.mjs"; import assert from "node:assert/strict"; for(const [q,expected] of [["","lang=\\"en\\""],["?lang=ar","dir=\\"rtl\\""]]) { const r=await w.fetch(new Request("https://example.com/"+q)); assert.equal(r.status,200); assert.ok((await r.text()).includes(expected)); }'
+      - name: Deploy preview
+        env:
+          CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          set -eu
+          test -n "$CF_TOKEN"
+          curl --fail --silent --show-error --max-time 30 -X PUT -H "Authorization: Bearer $CF_TOKEN" -F 'metadata={"main_module":"worker.mjs","compatibility_date":"2026-01-01"};type=application/json' -F 'worker.mjs=@preview/worker.mjs;type=application/javascript+module' 'https://api.cloudflare.com/client/v4/accounts/bae249433042911808956a8d6f145ba2/workers/scripts/badp-r1-preview' -o "$RUNNER_TEMP/deploy.json"
+          jq -e '.success == true' "$RUNNER_TEMP/deploy.json" >/dev/null
+          curl --fail --silent --show-error --retry 3 --retry-delay 3 --max-time 20 'https://badp-r1-preview.bmkamel.workers.dev/api/health' | jq -e '.version == "bilingual-1"'

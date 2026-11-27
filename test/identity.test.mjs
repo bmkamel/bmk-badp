@@ -1,0 +1,10 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {accessIdentity} from '../src/identity.mjs';
+const issuer='https://demo.cloudflareaccess.com',audience='demo';
+const req=token=>new Request('https://example.test',{headers:token?{'Cf-Access-Jwt-Assertion':token}:{}});
+const enc=o=>Buffer.from(JSON.stringify(o)).toString('base64url');
+test('missing config denied',async()=>assert.equal(await accessIdentity({})(req()),null));
+test('missing assertion denied',async()=>assert.equal(await accessIdentity({issuer,audience,db:{}})(req()),null));
+test('unsigned token denied',async()=>assert.equal(await accessIdentity({issuer,audience,db:{}})(req(enc({alg:'none'})+'.'+enc({})+'.x')),null));
+test('verified identity and tampering',async()=>{const pair=await crypto.subtle.generateKey({name:'RSASSA-PKCS1-v1_5',modulusLength:2048,publicExponent:new Uint8Array([1,0,1]),hash:'SHA-256'},true,['sign','verify']);const jwk=await crypto.subtle.exportKey('jwk',pair.publicKey);jwk.kid='k';const data=enc({alg:'RS256',kid:'k'})+'.'+enc({iss:issuer,aud:[audience],sub:'subject',exp:200});const sig=Buffer.from(await crypto.subtle.sign('RSASSA-PKCS1-v1_5',pair.privateKey,new TextEncoder().encode(data))).toString('base64url');const identify=accessIdentity({issuer,audience,clock:()=>100000,fetcher:async()=>Response.json({keys:[jwk]}),db:{prepare:()=>({bind:()=>({first:async()=>({id:'a'})})})}});assert.deepEqual(await identify(req(data+'.'+sig)),{id:'a'});assert.equal(await identify(req(data+'.'+Buffer.alloc(256).toString('base64url'))),null);});

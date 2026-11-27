@@ -92,3 +92,6 @@ Measure verified task completion rate, human interventions per task, regression 
 
 ### 18. Agent startup instruction
 Read this blueprint and current project policy before any task. Verify repository and evidence, identify the next authorized work item, and return a structured plan with scope, risk, tests, budget and stop conditions. Execute only through existing trusted gates. If capability is missing, report the exact blocker and propose a bounded improvement. Never claim that reading this file alone establishes autonomy. Start with BADP-TASK-001; do not repeat the completed formatting pilot.
+
+### 19. Authentication decision
+Owner-approved GitHub OAuth sign-in only. No public registration. Verify immutable GitHub user ID against an explicit allowlist; username alone is not authorization. Use server-side authorization code exchange, one-time state, PKCE where supported, secure HttpOnly SameSite cookies, session expiry and revocation. Keep OAuth client secret server-side. Request minimal identity permissions, not repository write scopes. All dashboard and private API routes fail closed until verified session and authorization. Separate user login from engineering service credentials. Test forged headers, callback replay, unauthorized accounts, logout and expired sessions before deployment.

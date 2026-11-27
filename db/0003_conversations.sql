@@ -1,0 +1,4 @@
+CREATE TABLE conversations (id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id), title TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE(id,project_id));
+CREATE TABLE messages (id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL, project_id TEXT NOT NULL, role TEXT NOT NULL CHECK(role IN ('user','assistant','system')), body TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(conversation_id,project_id) REFERENCES conversations(id,project_id));
+CREATE TABLE approval_requests (id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id), actor_id TEXT NOT NULL REFERENCES actors(id), digest TEXT NOT NULL, status TEXT NOT NULL CHECK(status IN ('pending','approved','denied','expired')), expires_at TEXT NOT NULL);
+CREATE INDEX messages_conversation_idx ON messages(conversation_id,created_at);

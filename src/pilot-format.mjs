@@ -1,1 +1,1 @@
-export const formatLabel = value => String(value);
+export const formatLabel = value => String(value).trim();

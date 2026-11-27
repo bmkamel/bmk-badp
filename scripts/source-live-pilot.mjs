@@ -12,12 +12,14 @@ if(process.env.BADP_FREE_CONFIRMED!=='true'||process.env.BADP_GROQ_FREE_VERIFIED
 const image=process.env.BADP_SMOKE_IMAGE;
 if(!/^(docker\.io\/library\/)?node@sha256:[a-f0-9]{64}$/.test(image??''))throw Error('immutable_image_required');
 const path='src/pilot-format.mjs',old=readFileSync(path,'utf8'),baseCommit=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim();
+const charter=readFileSync('docs/operating-charter.md','utf8');
+if(old.trim()==='export const formatLabel = value => String(value).trim();'){console.log('source_pilot_already_complete');process.exit(0);}
 const dir=mkdtempSync(join(tmpdir(),'badp-source-'));let runtime;
 try{
  const limit={verifiedFree:true,minuteRequests:1,dailyRequests:1,dailyUnits:8000};
  runtime=openHybridRuntime({database:join(dir,'budget.sqlite'),limits:{groq:limit},groq:{apiKey:process.env.GROQ_API_KEY,model:'openai/gpt-oss-20b',freePlanVerified:true},publicSourceApproved:true});
  const inputFor=output=>{const value=JSON.parse(output);return {baseCommit,snapshot:new Map([[path,old]]),allowedPaths:[path],changes:[{path,beforeSha256:createHash('sha256').update(old).digest('hex'),content:value.patches?.length===1&&value.patches[0].path===path?assertPilotContent(value.patches[0].content):null}]};};
- const output=await runtime.generate({phase:'patch',dataClass:'public',prompt:'Return JSON {"patches":[{"path":"src/pilot-format.mjs","content":"..."}]}. Change this module so formatLabel trims surrounding whitespace while preserving String conversion. Use exactly export const formatLabel = value => String(value).trim(); with optional trailing newline. Current source: '+old,accept:o=>validateSourceProposal(inputFor(o))});
+ const output=await runtime.generate({phase:'patch',dataClass:'public',prompt:charter+'\nCurrent authorized pilot only. Return JSON {"patches":[{"path":"src/pilot-format.mjs","content":"..."}]}. Change this module so formatLabel trims surrounding whitespace while preserving String conversion. Use exactly export const formatLabel = value => String(value).trim(); with optional trailing newline. Current source: '+old,accept:o=>validateSourceProposal(inputFor(o))});
  const input=inputFor(output),proposal=validateSourceProposal(input);
  const verifier=createSourceVerification({async verify({proposal,proposalDigest}){
  const name='badp-pilot-'+crypto.randomUUID();

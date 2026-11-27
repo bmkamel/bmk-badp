@@ -10,10 +10,13 @@ export function createHybridRunnerAdapter({runtime,publicProjects=[]}={}){
  const projectId=context.projectId;
  const dataClass=approved.has(projectId)?'public':'private';
  // Never serialize checkpoint context into a cloud prompt.
- const output=await runtime.generate({phase,prompt:schema+'\nGoal: '+prompt,dataClass,context});
+ const accept=output=>{
  if(typeof output==='string'&&Buffer.byteLength(output)>250000)throw Error('response_limit');
  const value=typeof output==='string'?JSON.parse(output):output;
  if(phase==='plan'){if(!validatePlan(value?.plan))throw Error('invalid_plan');return {plan:value.plan};}
  return {patches:validatePatches(value?.patches)};
+ };
+ const output=await runtime.generate({phase,prompt:schema+'\nGoal: '+prompt,dataClass,context,accept});
+ return accept(output);
  }});
 }

@@ -13,15 +13,16 @@ export function openHybridRuntime({database,limits,groq,openrouter,local,publicS
  let busy=false;
  return Object.freeze({
  async generate(request){
+ const accept=typeof request?.accept==='function'?request.accept:output=>output;
  if(!phases.has(request?.phase)||typeof request.prompt!=='string'||!request.prompt.trim()||Buffer.byteLength(request.prompt)>4000)throw Error('invalid_request');
  if(busy)throw Error('runtime_busy');
  busy=true;
  try{
  if(request.dataClass==='public'){
  const messages=[{role:'system',content:'Return only a valid JSON object for the requested development artifact. Phase: '+request.phase},{role:'user',content:request.prompt}];
- for(const send of transports){try{return await send({messages,jsonOutput:true,phase:request.phase});}catch{}}
+ for(const send of transports){try{const output=await send({messages,jsonOutput:true,phase:request.phase});await accept(output);return output;}catch{}}
  }
- if(typeof local?.generate==='function')return await local.generate(request);
+ if(typeof local?.generate==='function'){const {accept:ignored,...localRequest}=request;const output=await local.generate(localRequest);await accept(output);return output;}
  throw Error('no_eligible_model');
  }finally{busy=false;}
  },

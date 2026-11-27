@@ -23,6 +23,8 @@ jobs:
     if: github.ref == 'refs/heads/main' && inputs.free_budget_confirmed && vars.BADP_LIVE_DEMO_ENABLED == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    env:
+      BADP_REVIEW_DIR: ${{ runner.temp }}/badp-review
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
@@ -53,3 +55,10 @@ jobs:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
       - if: inputs.provider != 'openrouter' && !inputs.groq_free_verified
         run: exit 1
+      - if: success()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: badp-review
+          path: ${{ runner.temp }}/badp-review/review.json
+          if-no-files-found: error
+          retention-days: 1

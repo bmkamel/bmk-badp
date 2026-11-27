@@ -3,7 +3,7 @@ import {openHybridRuntime} from '../src/hybrid-runtime.mjs';
 import {createHybridRunnerAdapter} from '../src/hybrid-runner-adapter.mjs';
 import {createDevelopmentRunner} from '../src/development-runner.mjs';
 import {createStaticSandboxExecutor} from '../src/static-sandbox.mjs';
-import {mkdtempSync,rmSync} from 'node:fs';
+import {mkdtempSync,rmSync,mkdirSync,writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 const provider=process.env.BADP_DEMO_PROVIDER??'openrouter';
@@ -27,5 +27,19 @@ try{
  const result=await runner.start({projectId,actorId:'cloud-demo',prompt:'Create a simple offline HTML page with a title and main heading Hello BADP. No scripts, links or external resources.'});
  console.log(JSON.stringify({stage:result.stage,repairs:result.repairs}));
  if(result.stage!=='review')process.exitCode=1;
+ else{
+ const output=process.env.BADP_REVIEW_DIR;
+ if(output){
+ const artifacts={};
+ for(const type of ['plan','patch','test','preview']){
+ const body=await db.store.latestArtifact(result.id,projectId,type);
+ if(!body)throw Error('missing_review_artifact');
+ artifacts[type]=body;
+ }
+ mkdirSync(output,{recursive:false,mode:0o700});
+ writeFileSync(join(output,'review.json'),JSON.stringify({run:result,provider,artifacts},null,2),{flag:'wx',mode:0o600});
+ console.log('review_artifact_saved');
+ }
+ }
 }catch{console.error('live_demo_failed');process.exitCode=1;}
 finally{runtime?.close();db?.close();rmSync(dir,{recursive:true,force:true});}

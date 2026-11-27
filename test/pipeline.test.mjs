@@ -1,0 +1,12 @@
+import {test} from 'node:test';import assert from 'node:assert/strict';import {advance} from '../src/pipeline.mjs';import {validatePlan} from '../src/plan.mjs';import {allowedPatch} from '../src/patch-policy.mjs';
+const run={id:'r',projectId:'p',stage:'test',repairs:0};const event={runId:'r',projectId:'p',stage:'test',result:'fail'};
+test('failed test triggers repair',()=>assert.equal(advance(run,event).stage,'repair'));
+test('repair cap',()=>assert.equal(advance({...run,repairs:2},event).stage,'blocked'));
+test('cross project denied',()=>assert.throws(()=>advance(run,{...event,projectId:'q'})));
+test('stale stage denied',()=>assert.throws(()=>advance(run,{...event,stage:'patch'})));
+test('review needs approval',()=>assert.equal(advance({...run,stage:'review'},{...event,stage:'review',result:'ok'}).stage,'blocked'));
+const plan={goal:'demo',steps:[{id:'a',kind:'inspect',description:'inspect',dependsOn:[]},{id:'b',kind:'test',description:'test',dependsOn:['a']},{id:'c',kind:'preview',description:'preview',dependsOn:['b']}]};
+test('valid plan',()=>assert.equal(validatePlan(plan),true));
+test('forward dependency denied',()=>assert.equal(validatePlan({...plan,steps:[{...plan.steps[0],dependsOn:['b']},...plan.steps.slice(1)]}),false));
+test('sandbox patch allowed',()=>assert.equal(allowedPatch('app/index.html','demo'),true));
+test('escape and workflow denied',()=>{for(const p of ['app/../x.js','.github/workflows/ci.yml','app/.env','app/node_modules/x.js'])assert.equal(allowedPatch(p,'x'),false)});

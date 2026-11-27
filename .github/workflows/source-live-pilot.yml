@@ -41,3 +41,27 @@ jobs:
           path: ${{ runner.temp }}/source-review.json
           retention-days: 1
           if-no-files-found: error
+  publish:
+    needs: pilot
+    if: github.ref == 'refs/heads/main' && needs.pilot.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: source-review
+          path: ${{ runner.temp }}/badp-publish
+      - name: Publish verified proposal
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BADP_PILOT_OUTPUT: ${{ runner.temp }}/badp-publish/source-review.json
+        run: node scripts/publish-source-pilot.mjs

@@ -5,6 +5,9 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/source-live-pilot.yml'
+      - 'scripts/source-live-pilot.mjs'
+      - 'scripts/publish-source-pilot.mjs'
+      - 'src/pilot-policy.mjs'
 permissions:
   contents: read
 concurrency:

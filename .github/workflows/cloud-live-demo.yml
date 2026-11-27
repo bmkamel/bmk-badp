@@ -4,7 +4,7 @@ on:
     inputs:
       provider:
         type: choice
-        options: [openrouter, groq]
+        options: [openrouter, groq, hybrid]
         default: openrouter
       groq_free_verified:
         type: boolean
@@ -43,5 +43,13 @@ jobs:
           BADP_GROQ_FREE_VERIFIED: 'true'
           BADP_FREE_CONFIRMED: 'true'
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-      - if: inputs.provider == 'groq' && !inputs.groq_free_verified
+      - if: inputs.provider == 'hybrid' && inputs.groq_free_verified
+        run: node scripts/cloud-live-demo.mjs
+        env:
+          BADP_DEMO_PROVIDER: hybrid
+          BADP_GROQ_FREE_VERIFIED: 'true'
+          BADP_FREE_CONFIRMED: 'true'
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      - if: inputs.provider != 'openrouter' && !inputs.groq_free_verified
         run: exit 1

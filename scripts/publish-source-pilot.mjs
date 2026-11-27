@@ -1,3 +1,4 @@
+import {assertPilotContent} from '../src/pilot-policy.mjs';
 import {readFileSync} from 'node:fs';
 import {createHash} from 'node:crypto';
 import {execFileSync} from 'node:child_process';
@@ -8,6 +9,8 @@ const base=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim();
 const old=readFileSync(path,'utf8');
 const {proposal,evidence}=JSON.parse(readFileSync(process.env.BADP_PILOT_OUTPUT,'utf8'));
 const validated=validateSourceProposal({baseCommit:base,snapshot:new Map([[path,old]]),allowedPaths:[path],changes:proposal.files});
+if(validated.files.length!==1)throw Error('invalid_pilot_scope');
+assertPilotContent(validated.files[0].content);
 createReviewEnvelope({proposal:validated,evidence,projectId:'badp-source-pilot',currentBase:base});
 const token=process.env.GH_TOKEN,repo=process.env.GITHUB_REPOSITORY;
 if(!token||repo!=='bmkamel/bmk-badp'||!/^\d+$/.test(process.env.GITHUB_RUN_ID??''))throw Error('invalid_publish_scope');
@@ -17,7 +20,7 @@ async function api(endpoint,method='GET',body){
  return res.json();
 }
 if((await api('/git/ref/heads/main')).object.sha!==base)throw Error('stale_base');
-const branch='badp/pilot-'+process.env.GITHUB_RUN_ID;
+const branch='badp/pilot-'+process.env.GITHUB_RUN_ID+'-'+process.env.GITHUB_RUN_ATTEMPT;
 await api('/git/refs','POST',{ref:'refs/heads/'+branch,sha:base});
 const file=await api('/contents/'+path+'?ref='+encodeURIComponent(branch));
 await api('/contents/'+path,'PUT',{message:'BADP: normalize pilot labels',content:Buffer.from(validated.files[0].content).toString('base64'),sha:file.sha,branch});

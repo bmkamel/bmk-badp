@@ -1,0 +1,11 @@
+import {configured} from './auth.mjs';
+import {beginOAuth,exchangeIdentity} from './oauth.mjs';
+import {authStore} from './auth-state.mjs';
+const origin='https://badp-r1-preview.bmkamel.workers.dev';
+const cookie=(name,value,age)=>name+'='+value+'; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age='+age;
+const read=(request,name)=>{const matches=(request.headers.get('Cookie')??'').split(';').map(s=>s.trim()).filter(s=>s.startsWith(name+'='));return matches.length===1?matches[0].slice(name.length+1):null;};
+const headers={'Cache-Control':'no-store','Referrer-Policy':'no-referrer','X-Content-Type-Options':'nosniff'};
+const redirect=(location,cookies=[])=>{const h=new Headers({...headers,Location:location});for(const c of cookies)h.append('Set-Cookie',c);return new Response(null,{status:303,headers:h});};
+export const authReady=env=>configured(env)&&Boolean(env.AUTH_DB?.prepare);
+export async function authenticated(request,env){try{return authReady(env)&&await authStore(env.AUTH_DB).verify(read(request,'__Host-badp-session'),env.GITHUB_ALLOWED_ID);}catch{return false;}}
+export async function authRoute(request,env){const u=new URL(request.url);if(!u.pathname.startsWith('/auth/'))return null;if(u.origin!==origin||!authReady(env))return new Response('Authentication unavailable',{status:503,headers});try{const store=authStore(env.AUTH_DB);if(u.pathname==='/auth/github'&&request.method==='GET'){const t=await beginOAuth(env);const browser=await store.start(t);return redirect(t.url,[cookie('__Host-badp-oauth',browser,300)]);}if(u.pathname==='/auth/github/callback'&&request.method==='GET'){const state=u.searchParams.get('state');const transaction=await store.consume(state,read(request,'__Host-badp-oauth'));const account=await exchangeIdentity({code:u.searchParams.get('code'),state,transaction,env});const session=await store.createSession(account);return redirect('/dashboard',[cookie('__Host-badp-oauth','',0),cookie('__Host-badp-session',session,3600)]);}if(u.pathname==='/auth/logout'&&request.method==='POST'&&request.headers.get('Origin')===origin){await store.revoke(read(request,'__Host-badp-session'));return redirect('/',[cookie('__Host-badp-session','',0)]);}return new Response('Not allowed',{status:405,headers});}catch{return new Response('Authentication failed',{status:403,headers});}}

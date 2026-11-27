@@ -6,7 +6,7 @@ export function createHybridRunnerAdapter({runtime,publicProjects=[]}={}){
  return Object.freeze({async generate(request){
  const {phase,prompt,context={}}=request;
  if(!['plan','patch','repair'].includes(phase)||typeof prompt!=='string')throw Error('invalid_request');
- const schema=phase==='plan'?'Return JSON only: {"plan":{"goal":"...","steps":[{"id":"1","kind":"inspect","description":"...","dependsOn":[]}]}}. Inspect first, include test, preview last.':'Return JSON only: {"patches":[{"path":"app/index.html","content":"..."}]}. Complete static app, title and main, no scripts or external URLs.';
+ const schema=phase==='plan'?'Return JSON only: {"plan":{"goal":"...","steps":[{"id":"1","kind":"inspect","description":"...","dependsOn":[]}]}}. Use unique string ids, nonempty goal and descriptions. Allowed kinds: inspect, design, patch, test, preview. Include at least inspect, patch, test, preview in that order. Every dependsOn must be an array of earlier step ids only. Maximum 20 steps. Preview last.':'Return JSON only: {"patches":[{"path":"app/index.html","content":"..."}]}. Complete static app, title and main, no scripts or external URLs.';
  const projectId=context.projectId;
  const dataClass=approved.has(projectId)?'public':'private';
  // Never serialize checkpoint context into a cloud prompt.

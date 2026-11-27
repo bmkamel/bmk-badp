@@ -1,0 +1,37 @@
+name: BADP Cloud Fixture
+on:
+  workflow_dispatch:
+    inputs:
+      image_digest:
+        description: Reviewed Node image SHA-256 digest (64 lowercase hex characters)
+        required: true
+        type: string
+      free_budget_confirmed:
+        description: Free runner allowance and billing controls independently verified
+        required: true
+        type: boolean
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: badp-cloud-fixture
+  cancel-in-progress: false
+jobs:
+  fixture:
+    if: ${{ inputs.free_budget_confirmed && vars.BADP_CLOUD_FIXTURE_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Validate digest and run synthetic probe
+        shell: bash
+        env:
+          DIGEST: ${{ inputs.image_digest }}
+        run: |
+          set -euo pipefail
+          [[ "$DIGEST" =~ ^[a-f0-9]{64}$ ]]
+          export BADP_SMOKE_IMAGE="node@sha256:$DIGEST"
+          docker pull "$BADP_SMOKE_IMAGE"
+          bash scripts/cloud-fixture-verify.sh

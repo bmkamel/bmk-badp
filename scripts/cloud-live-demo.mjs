@@ -6,15 +6,22 @@ import {createStaticSandboxExecutor} from '../src/static-sandbox.mjs';
 import {mkdtempSync,rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-if(process.env.BADP_FREE_CONFIRMED!=='true'||!process.env.OPENROUTER_API_KEY)throw Error('demo_not_authorized');
+const provider=process.env.BADP_DEMO_PROVIDER??'openrouter';
+if(!['groq','openrouter'].includes(provider))throw Error('invalid_provider');
+if(provider==='groq'&&process.env.BADP_GROQ_FREE_VERIFIED!=='true')throw Error('groq_free_plan_not_verified');
+if(process.env.BADP_FREE_CONFIRMED!=='true'||!(provider==='groq'?process.env.GROQ_API_KEY:process.env.OPENROUTER_API_KEY))throw Error('demo_not_authorized');
 const dir=mkdtempSync(join(tmpdir(),'badp-live-'));
 let db,runtime;
 try{
  const projectId='public-static-demo';
  db=openLocalStore(join(dir,'state.sqlite'));db.ensureProject(projectId);
- runtime=openHybridRuntime({database:join(dir,'budget.sqlite'),limits:{'openrouter-free':{verifiedFree:true,minuteRequests:2,dailyRequests:2,dailyUnits:16000}},openrouter:{apiKey:process.env.OPENROUTER_API_KEY},publicSourceApproved:true});
+ runtime=openHybridRuntime({database:join(dir,'budget.sqlite'),limits:{[provider==='groq'?'groq':'openrouter-free']:{verifiedFree:true,minuteRequests:2,dailyRequests:2,dailyUnits:16000}},...(provider==='groq'?{groq:{apiKey:process.env.GROQ_API_KEY,model:'openai/gpt-oss-20b',freePlanVerified:true}}:{openrouter:{apiKey:process.env.OPENROUTER_API_KEY}}),publicSourceApproved:true});
  const adapter=createHybridRunnerAdapter({runtime,publicProjects:[projectId]});
- const model={generate:request=>adapter.generate({...request,context:{projectId}})};
+ const model={async generate(request){
+ console.log('phase_started:'+request.phase);
+ try{const output=await adapter.generate({...request,context:{projectId}});console.log('phase_validated:'+request.phase);return output;}
+ catch(e){const allowed=['no_eligible_model','invalid_plan','invalid_patches','missing_entrypoint','response_limit'];console.error('phase_failed:'+request.phase+':'+(e instanceof SyntaxError?'invalid_json':allowed.includes(e.message)?e.message:'unknown'));throw e;}
+ }};
  const runner=createDevelopmentRunner({model,executor:createStaticSandboxExecutor(),store:db.store});
  const result=await runner.start({projectId,actorId:'cloud-demo',prompt:'Create a simple offline HTML page with a title and main heading Hello BADP. No scripts, links or external resources.'});
  console.log(JSON.stringify({stage:result.stage,repairs:result.repairs}));

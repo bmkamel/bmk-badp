@@ -9,7 +9,7 @@ export function createOpenRouterFreeTransport({apiKey,admission,publicSourceAppr
   if(/-----BEGIN [A-Z ]*PRIVATE KEY-----|\b(?:ghp_|github_pat_|sk-proj-|sk-or-v1-)[A-Za-z0-9_-]{16,}/.test(JSON.stringify(messages)))throw Error('possible_secret');
   busy=true;
   try{
-   const permit=await admission.reserve({providerId:'openrouter-free',phase:'patch'});
+   const permit=await admission.reserve({providerId:'openrouter-free',phase:'patch',inputBytes:Buffer.byteLength(JSON.stringify(messages)),maxCompletionTokens:2048});
    if(permit?.allowed!==true)throw Error('cloud_quota_denied');
    const r=await fetcher('https://openrouter.ai/api/v1/chat/completions',{method:'POST',redirect:'error',signal:AbortSignal.timeout(90000),headers:{authorization:'Bearer '+apiKey,'content-type':'application/json'},body:JSON.stringify({model:'openrouter/free',messages:messages.map(m=>({role:m.role,content:m.content})),max_tokens:2048,temperature:0,stream:false,provider:{max_price:{prompt:0,completion:0,request:0},data_collection:'deny'}})});
    if(!r.ok||!r.body)throw Error('cloud_unavailable');

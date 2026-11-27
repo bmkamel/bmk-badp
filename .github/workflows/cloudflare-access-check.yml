@@ -1,0 +1,23 @@
+name: BADP Cloudflare Access Check
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/cloudflare-access-check.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Verify access to BADP Worker
+        env:
+          CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          set -eu
+          test -n "$CF_TOKEN"
+          curl --fail --silent --show-error --max-time 20 -H "Authorization: Bearer $CF_TOKEN" 'https://api.cloudflare.com/client/v4/accounts/bae249433042911808956a8d6f145ba2/workers/scripts/badp-r1-preview/settings' -o "$RUNNER_TEMP/cf-settings.json"
+          jq -e '.success == true' "$RUNNER_TEMP/cf-settings.json" >/dev/null
+          echo 'BADP Worker access verified'
+          curl --fail --silent --show-error --max-time 20 'https://badp-r1-preview.bmkamel.workers.dev/api/health' | jq -e '.status == "ok"'

@@ -56,3 +56,21 @@ test('resumes an interrupted run from its persisted patch stage',async()=>{
  assert.equal((await store.latestArtifact('resume-1','p','preview')).kind,'static-html');
  await assert.rejects(runner.resume({id:'resume-1',projectId:'other'}),/unknown_run/);
 });
+
+test('simultaneous resumes do not drive the same run',async()=>{
+ const store=createMemoryRunStore();await store.createRun({id:'same',projectId:'p',goal:'Demo'});
+ let release;const gate=new Promise(resolve=>{release=resolve;});let started;const ready=new Promise(resolve=>{started=resolve;});
+ const model={generate:async({phase})=>{if(phase==='plan'){started();await gate;return {plan};}return {patches:fixed};}};
+ const runner=createDevelopmentRunner({model,executor:createStaticSandboxExecutor(),store});
+ const first=runner.resume({id:'same',projectId:'p'});await ready;
+ await assert.rejects(runner.resume({id:'same',projectId:'p'}),/run_busy/);
+ release();assert.equal((await first).stage,'review');
+});
+
+test('expired runner cannot persist a late model response',async()=>{
+ let now=0;const store=createMemoryRunStore({clock:()=>now});await store.createRun({id:'expired',projectId:'p',goal:'Demo'});
+ const runner=createDevelopmentRunner({model:{generate:async()=>{now=120001;return {plan};}},executor:createStaticSandboxExecutor(),store});
+ await assert.rejects(runner.resume({id:'expired',projectId:'p'}),/stale_run/);
+ assert.equal((await store.getRun('expired','p')).stage,'plan');
+ assert.equal((await store.artifactsFor('expired')).length,0);
+});

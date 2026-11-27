@@ -8,7 +8,7 @@ test('SQLite-backed D1 contract rejects stale events and artifacts',async()=>{
  const sql=new DatabaseSync(':memory:');
  try{
   sql.exec('PRAGMA foreign_keys=ON');
-  for(const f of ['0001_initial.sql','0002_membership.sql','0003_conversations.sql','0004_identity.sql','0005_pipeline.sql','0006_execution_artifacts.sql'])sql.exec(readFileSync(new URL('../db/'+f,import.meta.url),'utf8'));
+  for(const f of ['0001_initial.sql','0002_membership.sql','0003_conversations.sql','0004_identity.sql','0005_pipeline.sql','0006_execution_artifacts.sql','0007_run_leases.sql'])sql.exec(readFileSync(new URL('../db/'+f,import.meta.url),'utf8'));
   sql.exec("INSERT INTO projects(id,name) VALUES ('p','P')");
   const db={prepare(query){return {bind(...args){return {run:async()=>({meta:{changes:Number(sql.prepare(query).run(...args).changes)}}),first:async()=>sql.prepare(query).get(...args)||null};}};},async batch(statements){sql.exec('BEGIN');try{const out=[];for(const statement of statements)out.push(await statement.run());sql.exec('COMMIT');return out;}catch(error){sql.exec('ROLLBACK');throw error;}}};
   let count=0;const store=d1RunStore(db,{idFactory:()=>`id-${++count}`});
@@ -19,5 +19,15 @@ test('SQLite-backed D1 contract rejects stale events and artifacts',async()=>{
   await assert.rejects(store.saveArtifact(run,{type:'plan',body:{plan:{}}}),/stale_run/);
   assert.equal(sql.prepare('SELECT count(*) AS n FROM development_events').get().n,1);
   assert.equal(sql.prepare('SELECT count(*) AS n FROM development_artifacts').get().n,0);
+  const current=await store.getRun('r','p');
+  await store.acquireLease('r','p','owner-a');
+  await assert.rejects(store.saveArtifact(current,{type:'patch',body:{patches:[]}}),/stale_run/);
+  await assert.rejects(store.acquireLease('r','p','owner-b'),/run_busy/);
+  sql.exec("UPDATE development_runs SET lease_until=unixepoch()-1 WHERE id='r'");
+  await store.acquireLease('r','p','owner-b');
+  await assert.rejects(store.saveArtifact({...current,leaseToken:'owner-a'},{type:'patch',body:{patches:[]}}),/stale_run/);
+  await store.releaseLease('r','p','owner-a');
+  await assert.rejects(store.acquireLease('r','p','owner-c'),/run_busy/);
+  await store.releaseLease('r','p','owner-b');
  }finally{sql.close();}
 });

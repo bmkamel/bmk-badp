@@ -4,7 +4,7 @@ This slice is deliberately limited to an inert, static application tree under `a
 
 ## Durable state
 
-`development_runs` carries the current stage, repair count, and optimistic revision. `development_events` records every successful state transition. Migration `0006_execution_artifacts.sql` stores the plan, full patch sets, test results, failure marker, and preview payload in the isolated BADP D1 database. A transition uses a revision-guarded update plus conditional event insert in one D1 batch; stale writers fail closed. The runner can resume from a persisted stage, but requires an external single-runner guarantee; there is no lease or automatic scheduler yet. An interrupted stage may repeat a model call.
+`development_runs` carries the current stage, repair count, optimistic revision, and a short-lived lease. `development_events` records transitions. Artifacts store plans, patches, test results, and preview payloads. The runner acquires a lease and renews it at each stage; conditional artifact and state writes fence a worker whose lease expired or was replaced. An interrupted stage may repeat a model call, and a call running beyond the 120-second lease can overlap its replacement; results from the expired owner cannot be committed. No automatic scheduler is included. These semantics need verification in the real D1 runtime before use.
 
 ## Bounded recovery
 

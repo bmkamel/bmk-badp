@@ -74,3 +74,19 @@ test('expired runner cannot persist a late model response',async()=>{
  assert.equal((await store.getRun('expired','p')).stage,'plan');
  assert.equal((await store.artifactsFor('expired')).length,0);
 });
+
+test('heartbeat renews lease while model is pending',async()=>{
+ const store=createMemoryRunStore();let renewed;const ready=new Promise(resolve=>{renewed=resolve;});let calls=0;
+ const wrapped={...store,renewLease:async(...args)=>{await store.renewLease(...args);if(++calls>=2)renewed();}};
+ const runner=createDevelopmentRunner({store:wrapped,heartbeatMs:5,executor:createStaticSandboxExecutor(),model:{generate:async({phase})=>{if(phase==='plan'){await ready;return {plan};}return {patches:fixed};}}});
+ const result=await runner.start({projectId:'p',actorId:'a',prompt:'Demo'});
+ assert.equal(result.stage,'review');assert.ok(calls>=2);
+});
+test('heartbeat failure fences model result',async()=>{
+ const store=createMemoryRunStore();let failed;const ready=new Promise(resolve=>{failed=resolve;});let calls=0;
+ const wrapped={...store,renewLease:async(...args)=>{if(++calls>=2){failed();throw Error('db unavailable');}return store.renewLease(...args);}};
+ const runner=createDevelopmentRunner({store:wrapped,heartbeatMs:5,executor:createStaticSandboxExecutor(),model:{generate:async()=>{await ready;return {plan};}}});
+ await assert.rejects(runner.start({id:'lost',projectId:'p',actorId:'a',prompt:'Demo'}),/stale_run/);
+ assert.equal((await store.getRun('lost','p')).stage,'plan');
+ assert.equal((await store.artifactsFor('lost')).length,0);
+});

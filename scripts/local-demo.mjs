@@ -1,3 +1,4 @@
+import {createModelGateway} from '../src/model-gateway.mjs';
 import {createOllamaAdapter} from '../src/ollama-adapter.mjs';
 import {createDevelopmentRunner} from '../src/development-runner.mjs';
 import {createMemoryRunStore} from '../src/run-store.mjs';
@@ -7,7 +8,7 @@ if(!prompt){console.error('Usage: node scripts/local-demo.mjs "Create an offline
 else {
  try{
  const store=createMemoryRunStore();
- const runner=createDevelopmentRunner({model:createOllamaAdapter(),executor:createStaticSandboxExecutor(),store});
+ const runner=createDevelopmentRunner({model:createModelGateway({providers:[{id:'ollama',location:'local',enabled:true,costClass:'free',tasks:['plan','patch','repair'],adapter:createOllamaAdapter()}]}),executor:createStaticSandboxExecutor(),store});
  const run=await runner.start({projectId:'local-demo',actorId:'local-operator',prompt});
  console.log(JSON.stringify({run,events:await store.eventsFor(run.id)},null,2));
  if(run.stage!=='review')process.exitCode=1;

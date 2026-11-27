@@ -1,0 +1,2 @@
+# Source verification coordinator
+Validates source proposals before invoking an injected trusted verifier. Binds evidence to the base commit and proposal digest, requires explicit isolation, disabled network and absent secrets, and requires syntax, tests and scope checks by default. A successful result is review-required, never automatic publication. Evidence booleans are a contract, not proof of isolation: only an independently controlled executor may supply them. Unit tests use synthetic evidence; no actual sandbox, credentials, network, or production changes are included.

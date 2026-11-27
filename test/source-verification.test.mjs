@@ -1,0 +1,10 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {createHash} from 'node:crypto';
+import {createSourceVerification} from '../src/source-verification.mjs';
+const path='src/example.mjs',old='export const x=1;';
+const input=()=>({baseCommit:'a'.repeat(40),snapshot:new Map([[path,old]]),allowedPaths:[path],changes:[{path,beforeSha256:createHash('sha256').update(old).digest('hex'),content:'export const x=2;'}]});
+const evidence=r=>({proposalDigest:r.proposalDigest,baseCommit:r.proposal.baseCommit,isolated:true,networkDisabled:true,secretsAbsent:true,checks:r.requiredChecks.map(name=>({name,passed:true}))});
+test('successful verification still requires review',async()=>{const v=createSourceVerification({verify:async r=>evidence(r)});assert.equal((await v.run(input())).status,'review-required');});
+test('rejects unbound or incomplete evidence',async()=>{for(const change of [e=>e.proposalDigest='bad',e=>e.isolated=false,e=>e.secretsAbsent=false,e=>e.networkDisabled=false,e=>e.checks.pop(),e=>e.checks.push(e.checks[0])]){const v=createSourceVerification({verify:async r=>{const e=evidence(r);change(e);return e;}});await assert.rejects(v.run(input()));}});
+test('failed check prevents review-ready status',async()=>{const v=createSourceVerification({verify:async r=>{const e=evidence(r);e.checks[0].passed=false;return e;}});assert.equal((await v.run(input())).status,'verification-failed');});

@@ -2,7 +2,10 @@ import assert from 'node:assert/strict';
 import {execFileSync} from 'node:child_process';
 import {readFileSync, writeFileSync} from 'node:fs';
 import {randomUUID,createHash} from 'node:crypto';
-import {discoverDashboardRecipe, path, source, transform} from './engineering-transform.mjs';
+import {discoverDashboardRecipe, path as dashboardPath, source, transform} from './engineering-transform.mjs';
+import {candidate, generate, hasGap, research, targets} from './locale-engineering.mjs';
+let path = dashboardPath;
+let table = 'engineering_queue';
 
 const repository = 'bmkamel/bmk-badp';
 assert.equal(process.env.GITHUB_REPOSITORY, repository);
@@ -26,20 +29,33 @@ async function request(url, token, method, body) {
   return response.status === 204 ? null : response.json();
 }
 const github = (endpoint, method='GET', body) => request('https://api.github.com/repos/'+repository+endpoint,gh,method,body);
-async function query(sql,...params) {
+async function statement(sql,...params) {
   const data = await request('https://api.cloudflare.com/client/v4/accounts/bae249433042911808956a8d6f145ba2/d1/database/c52bcd53-f510-4340-9a96-30eef4127345/query',cf,'POST',{sql,params});
   assert.ok(data.success && data.result[0]?.success);
-  return data.result[0].results;
+  return data.result[0];
+}
+async function query(sql,...params) {
+  return (await statement(sql,...params)).results;
 }
 function safeTask(task) {
   assert.match(task.id,/^[a-f0-9-]{36}$/);
+  if (Object.hasOwn(targets,task.kind)) {
+    table = 'engineering_model_tasks';
+    path = targets[task.kind].path;
+    return;
+  }
   assert.ok(['dashboard-theme','composer-keyboard'].includes(task.kind));
   assert.ok(task.recipe == null || (task.kind==='dashboard-theme'&&task.recipe==='dashboard-theme-selector'));
+}
+function expected(task) {
+  return Object.hasOwn(targets,task.kind)
+    ? candidate(task.kind,readBase(),task.proposal)
+    : transform(readBase(),task.recipe??task.kind);
 }
 function verify(task) {
   safeTask(task);
   const current = readFileSync(path,'utf8');
-  assert.equal(current, transform(readBase(),task.recipe??task.kind));
+  assert.equal(current, expected(task));
   assert.equal(execFileSync('git',['diff','--name-only'],{encoding:'utf8'}).trim(),path);
   execFileSync('git',['diff','--check']);
 }
@@ -63,6 +79,37 @@ async function isPaused() {
   const [state]=await query('SELECT paused FROM engineering_control WHERE id=1');
   return !state || state.paused!==0;
 }
+async function discoverAndClaim() {
+  const [previous] = await query("SELECT owner FROM engineering_queue WHERE status='verified' LIMIT 1");
+  if (!previous) return;
+  const [intake]=await query("SELECT id FROM engineering_intake WHERE owner=? AND status='queued' ORDER BY requested_at,id LIMIT 1",previous.owner);
+  const findings=[];
+  for (const [kind,target] of Object.entries(targets)) {
+    const original = execFileSync('git',['show',base+':'+target.path],{encoding:'utf8'});
+    if (!hasGap(kind,original)) continue;
+    findings.push(kind);
+    if ((await query('SELECT id FROM engineering_model_tasks WHERE owner=? AND kind=?',previous.owner,kind)).length) continue;
+    const evidence = await research(kind);
+    await query('INSERT OR IGNORE INTO engineering_model_tasks(id,owner,kind,research) SELECT ?,?,?,? WHERE EXISTS(SELECT 1 FROM engineering_control WHERE id=1 AND paused=0)',randomUUID(),previous.owner,kind,JSON.stringify(evidence));
+  }
+  if(intake) await query("UPDATE engineering_intake SET status='inspected',run_id=?,summary=? WHERE id=? AND status='queued' AND EXISTS(SELECT 1 FROM engineering_control WHERE id=1 AND paused=0)",run,JSON.stringify(findings),intake.id);
+  await query("UPDATE engineering_model_tasks SET status='blocked',lease_until=0,reason='attempts_exhausted' WHERE status='running' AND attempts>=3 AND lease_until<unixepoch()");
+  const [task] = await query("UPDATE engineering_model_tasks SET status='running',attempts=attempts+1,run_id=?,lease_until=unixepoch()+600 WHERE id=(SELECT id FROM engineering_model_tasks WHERE attempts<3 AND available_at<=unixepoch() AND (status='queued' OR (status='running' AND lease_until<unixepoch())) ORDER BY requested_at,kind DESC LIMIT 1) AND EXISTS(SELECT 1 FROM engineering_control WHERE id=1 AND paused=0) RETURNING *",run);
+  if (!task) return;
+  safeTask(task);
+  if (task.pr || (task.proposal && task.base_sha===base)) return task;
+  const db = {prepare: sql => ({bind: (...params) => ({run: () => statement(sql,...params)})})};
+  const generated = await generate(task.kind,readBase(),db,process.env);
+  if (generated.reason) {
+    const quota = generated.reason==='daily_quota';
+    await query("UPDATE engineering_model_tasks SET status=CASE WHEN attempts>=3 AND ?=0 THEN 'blocked' ELSE 'queued' END, attempts=attempts-?, reason=?,lease_until=0,available_at=(CAST(unixepoch()/86400 AS INTEGER)+1)*86400 WHERE id=? AND run_id=? AND status='running'",quota?1:0,quota?1:0,generated.reason,task.id,run);
+    console.log('Deferred '+task.kind+' '+generated.reason);
+    return;
+  }
+  const updated = await query("UPDATE engineering_model_tasks SET base_sha=?,proposal=?,provider=?,reason=NULL WHERE id=? AND run_id=? AND status='running' AND lease_until>unixepoch() RETURNING *",base,generated.proposal,generated.provider,task.id,run);
+  assert.equal(updated.length,1);
+  return updated[0];
+}
 if (mode === 'prepare') {
   if (await isPaused()) {
     console.log('Engineering claims paused by owner');
@@ -76,12 +123,8 @@ if (mode === 'prepare') {
   // A cancelled runner cannot execute its recovery step. Reconcile exhausted leases.
   await query("UPDATE engineering_queue SET status='blocked',lease_until=0 WHERE status='running' AND attempts>=3 AND lease_until<unixepoch()");
   let task;
-  const attempts=process.env.GITHUB_EVENT_NAME==='push'?9:1;
-  for(let check=0;check<attempts;check++) {
     [task] = await query("UPDATE engineering_queue SET status='running', attempts=attempts+1, run_id=?, lease_until=unixepoch()+600 WHERE id=(SELECT id FROM engineering_queue WHERE attempts<3 AND (status='queued' OR (status='running' AND lease_until<unixepoch())) ORDER BY requested_at,id LIMIT 1) AND EXISTS(SELECT 1 FROM engineering_control WHERE id=1 AND paused=0) RETURNING id,kind,recipe,pr,merge_sha",run);
-    if(task || check===attempts-1) break;
-    await delay(8000);
-  }
+  if (!task && !await isPaused()) task=await discoverAndClaim();
   if (!task) {
     if (!await isPaused()) await inspectIdleRepository();
     console.log('No eligible engineering task');
@@ -94,7 +137,7 @@ if (mode === 'prepare') {
       const evidence = await fetch(source,{redirect:'error',signal:AbortSignal.timeout(10000)});
       assert.ok(evidence.ok && (await evidence.text()).includes('prefers-color-scheme'),'official source unavailable');
     }
-    writeFileSync(path,transform(readBase(),task.recipe??task.kind));
+    writeFileSync(path,expected(task));
     verify(task);
   }
   console.log('Claimed '+(task.recipe??task.kind)+' in '+workflowUrl);
@@ -102,7 +145,7 @@ if (mode === 'prepare') {
   const task=JSON.parse(readFileSync(file,'utf8'));
   safeTask(task);
   assert.equal(task.base,base);
-  const [owned]=await query("SELECT id FROM engineering_queue WHERE id=? AND run_id=? AND status='running' AND lease_until>unixepoch()",task.id,run);
+  const [owned]=await query("SELECT id FROM "+table+" WHERE id=? AND run_id=? AND status='running' AND lease_until>unixepoch()",task.id,run);
   assert.ok(owned,'lost task lease');
   let pr=task.pr, merged=task.merge_sha;
   if (!merged) assert.equal(await isPaused(),false,'engineering claims paused');
@@ -127,10 +170,10 @@ if (mode === 'prepare') {
         assert.equal(ref.object.sha,commit.sha);
       });
       const opened=await github('/pulls','POST',{head:branch,base:'main',title:'BADP: '+(task.recipe??task.kind),
-        body:'Scoped change to '+path+'. Verified by '+workflowUrl+(task.kind==='dashboard-theme'?'\n\nResearch: '+source:'')});
+        body:'Scoped change to '+path+'. Verified by '+workflowUrl+(task.research?'\n\n'+JSON.parse(task.research).observation+' '+targets[task.kind].url:task.kind==='dashboard-theme'?'\n\nResearch: '+source:'')});
       pr=opened.number;
     }
-    await query("UPDATE engineering_queue SET pr=? WHERE id=? AND run_id=?",pr,task.id,run);
+    await query("UPDATE "+table+" SET pr=? WHERE id=? AND run_id=?",pr,task.id,run);
   }
   if (!merged) {
     const record=await github('/pulls/'+pr);
@@ -143,13 +186,13 @@ if (mode === 'prepare') {
       const head=await github('/git/commits/'+record.head.sha);
       assert.deepEqual(head.parents.map(parent=>parent.sha),[base]);
       const blob=await github('/contents/'+path+'?ref='+record.head.sha);
-      assert.equal(Buffer.from(blob.content,'base64').toString('utf8'),transform(readBase(),task.recipe??task.kind));
+      assert.equal(Buffer.from(blob.content,'base64').toString('utf8'),expected(task));
       assert.equal(await isPaused(),false,'engineering merges paused');
       const result=await github('/pulls/'+pr+'/merge','PUT',{sha:record.head.sha,merge_method:'squash'});
       assert.equal(result.merged,true);
       merged=result.sha;
     }
-    await query("UPDATE engineering_queue SET merge_sha=? WHERE id=? AND run_id=?",merged,task.id,run);
+    await query("UPDATE "+table+" SET merge_sha=? WHERE id=? AND run_id=?",merged,task.id,run);
   }
   assert.match(merged,/^[a-f0-9]{40}$/);
   assert.equal((await github('/git/ref/heads/main')).object.sha,merged,'deployment revision superseded');
@@ -161,16 +204,26 @@ if (mode === 'prepare') {
     await delay(5000);
   }
   assert.ok(live,'deployment revision not verified');
+  if (Object.hasOwn(targets,task.kind)) {
+    const labels=JSON.parse(task.proposal);
+    const cases=task.kind==='theme-actions' ? [['ar','dark',labels.arLight],['ar','light',labels.arDark]] : [['ar','dark',labels.en],['en','dark',labels.ar]];
+    for (const [lang,theme,label] of cases) {
+      const page=await fetch('https://badp-r1-preview.bmkamel.workers.dev/?lang='+lang+'&theme='+theme,{redirect:'error',cache:'no-store',signal:AbortSignal.timeout(8000)});
+      assert.ok(page.ok && (await page.text()).includes('>'+label+'</a>'),'published label not verified');
+    }
+  }
   // Queue the successor before finalizing: a cancelled run can safely retry this insert.
   if(task.kind==='dashboard-theme' && !task.recipe) {
     await query("INSERT INTO engineering_queue(id,owner,kind) SELECT ?,owner,'composer-keyboard' FROM engineering_queue WHERE id=? AND run_id=? AND status='running' AND lease_until>unixepoch() AND NOT EXISTS(SELECT 1 FROM engineering_queue WHERE kind='composer-keyboard')",randomUUID(),task.id,run);
   }
-  await query("UPDATE engineering_queue SET status='verified',lease_until=0,evidence=? WHERE id=? AND run_id=? AND status='running' AND lease_until>unixepoch()",workflowUrl,task.id,run);
+  const saved=await query("UPDATE "+table+" SET status='verified',lease_until=0,evidence=? WHERE id=? AND run_id=? AND status='running' AND lease_until>unixepoch() RETURNING id",workflowUrl,task.id,run);
+  assert.equal(saved.length,1,'verification lost task lease');
   // The scheduled workflow will claim the successor even if dispatch fails.
-  if(task.kind==='dashboard-theme' && !task.recipe) {
+  if((task.kind==='dashboard-theme' && !task.recipe) || Object.hasOwn(targets,task.kind)) {
     await github('/actions/workflows/engineering-queue.yml/dispatches','POST',{ref:'main'}).catch(()=>console.log('Successor awaits scheduled claim'));
   }
   console.log('Verified deployment '+merged+' from PR '+pr);
 } else if (mode === 'recover') {
+  await query("UPDATE engineering_model_tasks SET status=CASE WHEN attempts>=3 THEN 'blocked' ELSE 'queued' END,lease_until=0,evidence=?,reason='workflow_failure' WHERE run_id=? AND status='running'",workflowUrl,run);
   await query("UPDATE engineering_queue SET status=CASE WHEN attempts>=3 THEN 'blocked' ELSE 'queued' END,lease_until=0,evidence=? WHERE run_id=? AND status='running'",workflowUrl,run);
 } else throw Error('invalid workflow stage');

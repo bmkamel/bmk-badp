@@ -113,7 +113,7 @@ function client() {
     return response.json();
   }
   async function refreshEngineering() {
-    const {tasks,paused,inspection}=await engineering();
+    const {tasks,intake=[],paused,inspection}=await engineering();
     $('engineering-switch').textContent=paused?t('Resume engineering','استئناف التشغيل الهندسي'):t('Pause engineering','إيقاف التشغيل الهندسي');
     $('engineering-switch').onclick=async()=>{try{
       await engineering({action:paused?'resume-system':'pause-system'});await refreshEngineering();
@@ -126,14 +126,18 @@ function client() {
       link.href='https://github.com/bmkamel/bmk-badp/actions/runs/'+inspection.run_id;
       status.append(' ',link);
     }
-    const fingerprint=JSON.stringify(tasks);
+    const fingerprint=JSON.stringify([intake,tasks]);
     if (fingerprint===refreshEngineering.last) return;
     refreshEngineering.last=fingerprint;
-    $('engineering-history').replaceChildren(...tasks.map(task=>{
+    $('engineering-history').replaceChildren(...[...intake,...tasks].map(task=>{
       const line=node('li');
       const status={queued:t('Queued','في الانتظار'),running:t('Running','قيد التنفيذ'),
         paused:t('Paused','متوقفة'),blocked:t('Blocked','متعذرة'),verified:t('Deployment verified','تم التحقق من النشر')};
-      line.append(node('span',(task.recipe==='dashboard-theme-selector'?t('Dashboard theme selector','اختيار مظهر اللوحة'):task.kind==='dashboard-theme'?t('Dashboard theme','مظهر اللوحة'):t('Composer keyboard shortcut','اختصار لوحة المفاتيح'))+' · '+status[task.status]+' '));
+      const title=task.command||({'theme-actions':t('Arabic theme controls','تعريب زر المظهر'),'language-names':t('Language names','أسماء اللغات')}[task.kind])||(task.recipe==='dashboard-theme-selector'?t('Dashboard theme selector','اختيار مظهر اللوحة'):task.kind==='dashboard-theme'?t('Dashboard theme','مظهر اللوحة'):t('Composer keyboard shortcut','اختصار لوحة المفاتيح'));
+      const stage=status[task.status]||({inspected:t('Inspected','تم الفحص'),needs_scope:t('Requires engineering review','تحتاج مراجعة النطاق')}[task.status]);
+      line.append(node('span',title+' · '+stage+' '));
+      if(task.reason) line.append(node('small',task.reason==='daily_quota'?t('Daily quota reserved. Retries next UTC day.','الحصة اليومية محجوزة. تُستأنف المحاولة في اليوم التالي بتوقيت UTC.'):task.reason));
+      if(task.summary) line.append(node('small',JSON.parse(task.summary).join(', ')||t('No eligible change','لا يوجد تغيير مؤهل')));
       if(task.pr){
         const link=node('a',t('Pull request','طلب الدمج'));
         link.href='https://github.com/bmkamel/bmk-badp/pull/'+task.pr;
@@ -164,6 +168,12 @@ function client() {
     $('send').disabled = true;
     try {
       const command=$('prompt').value.trim();
+      if ($('engineering-mode').checked || /(?:BADP.*(?:واجهات|واجهة|ابحث|افحص)|(?:واجهات|ابحث|افحص).*BADP|inspect.*BADP)/iu.test(command)) {
+        await engineering({action:'inspect',id:crypto.randomUUID(),command});
+        $('composer').reset();
+        await refreshEngineering();
+        return;
+      }
       if (/^(?:طور|طوّر|حسّن|حسن) واجهة badp[.!؟]?$/iu.test(command) || /^improve (?:the )?badp (?:dashboard|interface)[.!]?$/i.test(command)) {
         await engineering({id:crypto.randomUUID(),kind:'dashboard-theme'});
         $('composer').reset();
@@ -211,6 +221,7 @@ button:disabled{opacity:.6}article{padding:12px 16px;border:1px solid var(--line
 <section id="history" aria-label="${t('Conversation history','سجل المحادثة')}"></section>
 <p id="empty">${t('No development tasks yet.','لم تُرسل مهام تطوير بعد.')}</p>
 <form id="composer"><label for="prompt">${t('Development command','أمر التطوير')}</label>
+<label><input id="engineering-mode" type="checkbox"> ${t('Run engineering inspection on BADP','تشغيل فحص هندسي على BADP')}</label>
 <textarea id="prompt" dir="auto" required maxlength="2000" placeholder="${t('Create a static page for the project overview','أنشئ صفحة ثابتة للتعريف بالمشروع')}"></textarea>
 <div class="tools"><label for="file">${t('Attach text (4 KB max)','إرفاق ملف نصي (حتى 4 كيلوبايت)')}</label><input id="file" type="file" accept=".txt,.md,.json,.csv">
 <label><input id="allow-ai" type="checkbox"> ${t('Send this public command to OpenRouter for an AI draft','إرسال هذا الأمر العام إلى OpenRouter لإعداد مسودة بالذكاء الاصطناعي')}</label>

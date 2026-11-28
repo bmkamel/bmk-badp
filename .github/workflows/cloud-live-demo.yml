@@ -23,9 +23,9 @@ jobs:
     if: github.ref == 'refs/heads/main' && inputs.free_budget_confirmed && vars.BADP_LIVE_DEMO_ENABLED == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    env:
-      BADP_REVIEW_DIR: ${{ runner.temp }}/badp-review
     steps:
+      - name: Set review artifact path
+        run: echo "BADP_REVIEW_DIR=$RUNNER_TEMP/badp-review" >> "$GITHUB_ENV"
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           persist-credentials: false

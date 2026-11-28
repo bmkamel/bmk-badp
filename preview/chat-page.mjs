@@ -3,6 +3,21 @@ function client() {
   const ar = root.lang === 'ar';
   const t = (english, arabic) => ar ? arabic : english;
   const $ = id => document.getElementById(id);
+  const themeControl = $('dashboard-theme');
+  const themes = ['system','light','dark'];
+  const applyTheme = value => {
+    if(value==='system') delete root.dataset.theme;
+    else root.dataset.theme=value;
+  };
+  let savedTheme;
+  try { savedTheme=localStorage.getItem('badp-dashboard-theme'); } catch {}
+  themeControl.value=themes.includes(savedTheme)?savedTheme:(root.dataset.theme??'system');
+  applyTheme(themeControl.value);
+  themeControl.addEventListener('change',()=>{
+    if(!themes.includes(themeControl.value)) return;
+    applyTheme(themeControl.value);
+    try { localStorage.setItem('badp-dashboard-theme',themeControl.value); } catch {}
+  });
   const error = $('error');
   const labels = {
     queued: t('Queued', 'في الانتظار'), running: t('Running', 'قيد التنفيذ'),
@@ -179,6 +194,8 @@ export function chatPage(lang, theme) {
 :root{color-scheme:dark;--bg:#0b1120;--panel:#141e31;--line:#34425e;--ink:#eef2ff;--accent:#a9def6}
 @media(prefers-color-scheme:light){:root{color-scheme:light;--bg:#f1f5fb;--panel:#fff;--line:#bdc9dc;--ink:#17253c;--accent:#174d74}}
 [data-theme=light]{color-scheme:light;--bg:#f1f5fb;--panel:#fff;--line:#bdc9dc;--ink:#17253c;--accent:#174d74}
+[data-theme=dark]{color-scheme:dark;--bg:#0b1120;--panel:#141e31;--line:#34425e;--ink:#eef2ff;--accent:#a9def6}
+select{font:inherit;color:var(--ink);background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:6px}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:16px system-ui;line-height:1.6}
 header{border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;padding:12px max(16px,calc((100% - 760px)/2));gap:12px}
 nav,article div,.tools{display:flex;gap:12px;flex-wrap:wrap;align-items:center}main{max-width:760px;margin:auto;padding:20px 16px}
@@ -187,7 +204,7 @@ button:disabled{opacity:.6}article{padding:12px 16px;border:1px solid var(--line
 .message{white-space:pre-wrap;font-weight:600}textarea{background:var(--bg);color:inherit;font:inherit;width:100%;min-height:88px;resize:vertical;border:1px solid var(--line);border-radius:10px;padding:10px}
 #composer{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px}#send{background:#b9e6fc;color:#0c1829;font-weight:700}#error{color:#ffb7a7}small{opacity:.8}input[type=file]{max-width:100%}
 </style><header><strong>BMK BADP</strong><nav><a href="?lang=${ar ? 'en' : 'ar'}">${ar ? 'English' : 'العربية'}</a>
-<form method="post" action="/auth/logout"><button>${t('Sign out','تسجيل الخروج')}</button></form></nav></header>
+<form method="post" action="/auth/logout"><button>${t('Sign out','تسجيل الخروج')}</button></form><label for="dashboard-theme">${t('Theme','المظهر')}</label><select id="dashboard-theme"><option value="system">${t('System','النظام')}</option><option value="light">${t('Light','فاتح')}</option><option value="dark">${t('Dark','داكن')}</option></select></nav></header>
 <main><h1>${t('Development chat','محادثة التطوير')}</h1>
 <p>${t('Send a design, report, programming or general request in Arabic or English.','أرسل طلب تصميم أو تقرير أو برمجة أو أي طلب عام بالعربية أو الإنجليزية.')}</p>
 <section><h2>${t('Engineering tasks','المهام الهندسية')}</h2><p>${t('Use “Improve BADP dashboard” to queue the next approved interface change.','أرسل «طور واجهة BADP» لإدراج تحسين الواجهة المعتمد في قائمة التنفيذ.')}</p><button id="engineering-switch" hidden></button><p id="engineering-inspection"></p><ul id="engineering-history"></ul></section>

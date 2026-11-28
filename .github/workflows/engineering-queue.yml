@@ -12,18 +12,17 @@ concurrency:
 permissions:
   contents: read
 jobs:
-  advance:
+  prepare:
     if: github.repository == 'bmkamel/bmk-badp' && github.ref == 'refs/heads/main' && vars.BADP_ENGINEERING_PAUSED != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 7
-    permissions:
-      contents: write
-      actions: write
-      pull-requests: write
+    outputs:
+      ready: ${{ steps.candidate.outputs.ready }}
+      digest: ${{ steps.candidate.outputs.digest }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
-          ref: main
+          ref: ${{ github.sha }}
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
@@ -32,6 +31,7 @@ jobs:
         id: candidate
         env:
           CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           BADP_GROQ_FREE_VERIFIED: ${{ vars.BADP_GROQ_FREE_VERIFIED }}
@@ -39,21 +39,76 @@ jobs:
           node scripts/engineering-queue.mjs prepare
           if test -f "$RUNNER_TEMP/engineering-candidate.json"; then
             echo 'ready=true' >> "$GITHUB_OUTPUT"
+            sha256sum "$RUNNER_TEMP/engineering-candidate.json" | awk '{print "digest="$1}' >> "$GITHUB_OUTPUT"
           fi
       - if: steps.candidate.outputs.ready == 'true'
-        name: Verify generated locale code in an offline sandbox
-        run: node scripts/check-locale-sandbox.mjs
-      - if: steps.candidate.outputs.ready == 'true'
-        name: Run trusted regression checks with no publishing secrets
-        run: npm test
-      - if: steps.candidate.outputs.ready == 'true'
-        name: Create PR, merge, deploy, and verify the revision
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: candidate-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/engineering-candidate.json
+          retention-days: 1
+          if-no-files-found: error
+  verify:
+    needs: prepare
+    if: needs.prepare.outputs.ready == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: candidate-${{ github.run_attempt }}
+          path: ${{ runner.temp }}
+      - name: Independently materialize and test candidate without publishing or provider secrets
         env:
+          DIGEST: ${{ needs.prepare.outputs.digest }}
+        run: |
+          echo "$DIGEST  $RUNNER_TEMP/engineering-candidate.json" | sha256sum --check --status
+          node scripts/engineering-queue.mjs materialize
+          node scripts/check-locale-sandbox.mjs
+          npm test
+  publish:
+    needs: [prepare, verify]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      actions: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: candidate-${{ github.run_attempt }}
+          path: ${{ runner.temp }}
+      - name: Revalidate recorded task, publish and verify
+        env:
+          DIGEST: ${{ needs.prepare.outputs.digest }}
           CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           GH_TOKEN: ${{ github.token }}
-        run: node scripts/engineering-queue.mjs publish
-      - if: failure()
-        name: Recover the task with a bounded retry
+        run: |
+          echo "$DIGEST  $RUNNER_TEMP/engineering-candidate.json" | sha256sum --check --status
+          node scripts/engineering-queue.mjs publish
+  recover:
+    needs: [prepare, verify, publish]
+    if: failure() && github.repository == 'bmkamel/bmk-badp' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Recover failed claims
         env:
           CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: node scripts/engineering-queue.mjs recover

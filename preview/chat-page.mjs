@@ -30,6 +30,7 @@ function client() {
     daily_limit: t('Daily task limit reached. Try again tomorrow.', 'بلغت الحد اليومي للمهام. حاول مجددًا غدًا.'),
     invalid_attachment: t('Attach a TXT, MD, CSV or JSON file up to 4 KB.', 'أرفق ملف TXT أو MD أو CSV أو JSON بحجم لا يتجاوز 4 كيلوبايت.'),
     invalid_state: t('The task has changed. Check its latest status.', 'تغيّرت حالة المهمة. اطّلع على حالتها الحالية.'),
+    engineering_attachment: t('Remove the attachment to inspect the repository. Attachments are supported in chat requests.', 'أزل المرفق لإجراء فحص المستودع. تدعم طلبات المحادثة إرفاق الملفات.'),
   };
   async function api(path, options) {
     const response = await fetch('/api/chat'+path, options);
@@ -113,7 +114,7 @@ function client() {
     return response.json();
   }
   async function refreshEngineering() {
-    const {tasks,intake=[],paused,inspection}=await engineering();
+    const {tasks,intake=[],usage=[],paused,inspection}=await engineering();
     $('engineering-switch').textContent=paused?t('Resume engineering','استئناف التشغيل الهندسي'):t('Pause engineering','إيقاف التشغيل الهندسي');
     $('engineering-switch').onclick=async()=>{try{
       await engineering({action:paused?'resume-system':'pause-system'});await refreshEngineering();
@@ -126,7 +127,7 @@ function client() {
       link.href='https://github.com/bmkamel/bmk-badp/actions/runs/'+inspection.run_id;
       status.append(' ',link);
     }
-    const fingerprint=JSON.stringify([intake,tasks]);
+    const fingerprint=JSON.stringify([intake,tasks,usage]);
     if (fingerprint===refreshEngineering.last) return;
     refreshEngineering.last=fingerprint;
     $('engineering-history').replaceChildren(...[...intake,...tasks].map(task=>{
@@ -138,6 +139,23 @@ function client() {
       line.append(node('span',title+' · '+stage+' '));
       if(task.reason) line.append(node('small',task.reason==='daily_quota'?t('Daily quota reserved. Retries next UTC day.','الحصة اليومية محجوزة. تُستأنف المحاولة في اليوم التالي بتوقيت UTC.'):task.reason));
       if(task.summary) line.append(node('small',JSON.parse(task.summary).join(', ')||t('No eligible change','لا يوجد تغيير مؤهل')));
+      if(task.research){
+        const record=JSON.parse(task.research);
+        const sources=['https://raw.githubusercontent.com/mdn/content/','https://raw.githubusercontent.com/unicode-org/cldr-json/'];
+        if(sources.some(prefix=>record.url?.startsWith(prefix))){
+          const link=node('a',t('Research','مصدر البحث'));
+          link.href=record.url;
+          link.target='_blank';
+          link.rel='noopener noreferrer';
+          line.append(' ',link,' ');
+        }
+      }
+      if(task.provider) line.append(node('small',task.provider));
+      const attempt=usage.find(entry=>entry.task_id===task.id);
+      if(attempt && (attempt.prompt_tokens!=null || attempt.completion_tokens!=null)){
+        line.append(node('small',' · '+t('Tokens in / out','رموز الإدخال / الإخراج')+' '+(attempt.prompt_tokens??'—')+' / '+(attempt.completion_tokens??'—')));
+        if(attempt.reported_cost===0) line.append(node('small',' · $0'));
+      }
       if(task.pr){
         const link=node('a',t('Pull request','طلب الدمج'));
         link.href='https://github.com/bmkamel/bmk-badp/pull/'+task.pr;
@@ -168,14 +186,11 @@ function client() {
     $('send').disabled = true;
     try {
       const command=$('prompt').value.trim();
-      if ($('engineering-mode').checked || /(?:BADP.*(?:واجهات|واجهة|ابحث|افحص)|(?:واجهات|ابحث|افحص).*BADP|inspect.*BADP)/iu.test(command)) {
+      const mode=$('engineering-mode').value;
+      const development=/افحص|ابحث|طور|طوّر|حسّن|حسن|برمج|أصلح|اصلح|نفذ|inspect|research|improve|implement|fix|develop|build/iu;
+      if (mode==='engineering' || (mode==='auto' && /BADP/iu.test(command) && development.test(command))) {
+        if($('file').files.length) throw Error('engineering_attachment');
         await engineering({action:'inspect',id:crypto.randomUUID(),command});
-        $('composer').reset();
-        await refreshEngineering();
-        return;
-      }
-      if (/^(?:طور|طوّر|حسّن|حسن) واجهة badp[.!؟]?$/iu.test(command) || /^improve (?:the )?badp (?:dashboard|interface)[.!]?$/i.test(command)) {
-        await engineering({id:crypto.randomUUID(),kind:'dashboard-theme'});
         $('composer').reset();
         await refreshEngineering();
         return;
@@ -221,7 +236,8 @@ button:disabled{opacity:.6}article{padding:12px 16px;border:1px solid var(--line
 <section id="history" aria-label="${t('Conversation history','سجل المحادثة')}"></section>
 <p id="empty">${t('No development tasks yet.','لم تُرسل مهام تطوير بعد.')}</p>
 <form id="composer"><label for="prompt">${t('Development command','أمر التطوير')}</label>
-<label><input id="engineering-mode" type="checkbox"> ${t('Run engineering inspection on BADP','تشغيل فحص هندسي على BADP')}</label>
+<label for="engineering-mode">${t('Request type','نوع الطلب')}</label>
+<select id="engineering-mode"><option value="auto">${t('Automatic','تلقائي')}</option><option value="engineering">${t('BADP engineering','تطوير BADP')}</option><option value="chat">${t('Chat and previews','محادثة ومعاينات')}</option></select>
 <textarea id="prompt" dir="auto" required maxlength="2000" placeholder="${t('Create a static page for the project overview','أنشئ صفحة ثابتة للتعريف بالمشروع')}"></textarea>
 <div class="tools"><label for="file">${t('Attach text (4 KB max)','إرفاق ملف نصي (حتى 4 كيلوبايت)')}</label><input id="file" type="file" accept=".txt,.md,.json,.csv">
 <label><input id="allow-ai" type="checkbox"> ${t('Send this public command to OpenRouter for an AI draft','إرسال هذا الأمر العام إلى OpenRouter لإعداد مسودة بالذكاء الاصطناعي')}</label>

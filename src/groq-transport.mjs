@@ -1,6 +1,6 @@
 // Free-plan eligibility is an operator-verified prerequisite, not inferred from API success.
 const models=new Set(['openai/gpt-oss-120b','openai/gpt-oss-20b']);
-export function createGroqTransport({apiKey,model='openai/gpt-oss-120b',admission,freePlanVerified=false,publicSourceApproved=false,fetcher=fetch}={}){
+export function createGroqTransport({apiKey,model='openai/gpt-oss-120b',admission,freePlanVerified=false,publicSourceApproved=false,fetcher=fetch,onUsage}={}){
  if(typeof apiKey!=='string'||!apiKey.trim()||!models.has(model)||freePlanVerified!==true||publicSourceApproved!==true||typeof admission?.reserve!=='function')throw Error('groq_not_authorized');
  let busy=false;
  return async ({messages,jsonOutput=false}={})=>{
@@ -18,6 +18,7 @@ export function createGroqTransport({apiKey,model='openai/gpt-oss-120b',admissio
    try{while(true){const {done,value}=await reader.read();if(done)break;length+=value.byteLength;if(length>350000){await reader.cancel();throw Error('groq_response_limit');}chunks.push(value);}}finally{reader.releaseLock();}
    const data=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(Buffer.concat(chunks)));
    if(data.choices?.[0]?.finish_reason!=='stop'||typeof data.choices[0].message?.content!=='string')throw Error('invalid_groq_response');
+   onUsage?.(data.usage);
    return data.choices[0].message.content;
   }finally{busy=false;}
  };

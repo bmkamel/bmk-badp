@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {DatabaseSync} from 'node:sqlite';
 import {readFileSync} from 'node:fs';
-import {candidate,decodeModule,hasGap,research} from '../scripts/locale-engineering.mjs';
+import {candidate,decodeModule,generate,hasGap,research} from '../scripts/locale-engineering.mjs';
 import {engineeringRoute} from '../preview/engineering.mjs';
 
 test('locale review binds the full output and rejects extra keys, code and altered translations',()=>{
@@ -21,6 +21,15 @@ test('research requires specific upstream content and stores its digest',async()
   const mock=()=>Promise.resolve(Response.json({main:{en:{localeDisplayNames:{languages:{en:'English'}}}}}));
   assert.match((await research('language-names',mock)).digest,/^[a-f0-9]{64}$/);
   await assert.rejects(research('language-names',()=>Promise.resolve(Response.json({}))));
+});
+
+test('record quota denial without making an inference or inventing token use',async()=>{
+  const db={prepare:()=>({bind:()=>({run:()=>({meta:{changes:0}})})})};
+  const events=[];
+  const result=await generate('language-names','export default {"en":"EN","ar":"العربية"};',db,
+    {OPENROUTER_API_KEY:'fixture'},(...args)=>events.push(args));
+  assert.equal(result.reason,'daily_quota');
+  assert.deepEqual(events,[['openrouter-free','daily_quota',undefined]]);
 });
 
 test('durable intake is idempotent, scoped, and supports pause/resume',async()=>{

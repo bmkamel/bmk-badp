@@ -41,7 +41,7 @@ export async function authenticated(request, env) {
   }
 }
 
-export async function authRoute(request, env, fetcher = fetch) {
+export async function authRoute(request, env, fetcher = (...args) => globalThis.fetch(...args)) {
   const url = new URL(request.url);
   if (!url.pathname.startsWith('/auth/')) return null;
   if (url.origin !== origin || !authReady(env)) return new Response('Authentication unavailable', {status: 503, headers});

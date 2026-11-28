@@ -62,7 +62,7 @@ jobs:
           base=https://badp-r1-preview.bmkamel.workers.dev
           ready=false
           for attempt in {1..8}; do
-            if curl -fsS --max-time 10 "$base/api/health" | jq -e '.version == "r1-oauth-recovery-1"' >/dev/null &&
+            if curl -fsS --max-time 10 "$base/api/health" | jq -e '.version == "r1-oauth-recovery-2"' >/dev/null &&
                curl -fsS --max-time 10 "$base/" | grep -q 'href="/auth/github"'; then
               ready=true
               break

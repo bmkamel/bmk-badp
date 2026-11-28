@@ -160,6 +160,8 @@ export function chatPage(lang, theme) {
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>BADP · ${t('Development chat','محادثة التطوير')}</title>
 <style>
 :root{color-scheme:dark;--bg:#0b1120;--panel:#141e31;--line:#34425e;--ink:#eef2ff;--accent:#a9def6}
+@media(prefers-color-scheme:light){:root{color-scheme:light;--bg:#f1f5fb;--panel:#fff;--line:#bdc9dc;--ink:#17253c;--accent:#174d74}}
+[data-theme=light]{color-scheme:light;--bg:#f1f5fb;--panel:#fff;--line:#bdc9dc;--ink:#17253c;--accent:#174d74}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:16px system-ui;line-height:1.6}
 header{border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;padding:12px max(16px,calc((100% - 760px)/2));gap:12px}
 nav,article div,.tools{display:flex;gap:12px;flex-wrap:wrap;align-items:center}main{max-width:760px;margin:auto;padding:20px 16px}

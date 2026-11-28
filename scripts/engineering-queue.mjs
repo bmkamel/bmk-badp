@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {execFileSync} from 'node:child_process';
 import {readFileSync, writeFileSync} from 'node:fs';
-import {randomUUID} from 'node:crypto';
+import {randomUUID,createHash} from 'node:crypto';
 import {path, source, transform} from './engineering-transform.mjs';
 
 const repository = 'bmkamel/bmk-badp';
@@ -42,15 +42,40 @@ function verify(task) {
   assert.equal(execFileSync('git',['diff','--name-only'],{encoding:'utf8'}).trim(),path);
   execFileSync('git',['diff','--check']);
 }
+async function inspectIdleRepository() {
+  const day=Math.floor(Date.now()/86400000);
+  if ((await query('SELECT day FROM engineering_inspections WHERE day=?',day)).length) return;
+  const digest = file => createHash('sha256').update(readFileSync(file)).digest('hex');
+  const official='https://docs.github.com/en/actions/concepts/security/github_token';
+  const response=await fetch(official,{redirect:'error',signal:AbortSignal.timeout(8000)}).catch(()=>null);
+  const status=response?.ok ? 'available' : 'unavailable';
+  await response?.body?.cancel().catch(()=>{});
+  const health=await fetch('https://badp-r1-preview.bmkamel.workers.dev/api/health',
+    {cache:'no-store',signal:AbortSignal.timeout(8000)}).catch(()=>null);
+  const live=health?.ok ? await health.json().catch(()=>null) : null;
+  await query('INSERT OR IGNORE INTO engineering_inspections(day,base_sha,blueprint_sha,charter_sha,observed_sha,source_url,source_status,run_id) VALUES (?,?,?,?,?,?,?,?)',
+    day,base,digest('docs/MASTER_BLUEPRINT.md'),digest('docs/operating-charter.md'),
+    /^[a-f0-9]{40}$/.test(live?.sourceSha??'')?live.sourceSha:null,official,status,run);
+  console.log('Recorded repository, policy and deployment inspection');
+}
+async function isPaused() {
+  const [state]=await query('SELECT paused FROM engineering_control WHERE id=1');
+  return !state || state.paused!==0;
+}
 if (mode === 'prepare') {
+  if (await isPaused()) {
+    console.log('Engineering claims paused by owner');
+    process.exit(0);
+  }
   let task;
   const attempts=process.env.GITHUB_EVENT_NAME==='push'?9:1;
   for(let check=0;check<attempts;check++) {
-    [task] = await query("UPDATE engineering_queue SET status='running', attempts=attempts+1, run_id=?, lease_until=unixepoch()+600 WHERE id=(SELECT id FROM engineering_queue WHERE attempts<3 AND (status='queued' OR (status='running' AND lease_until<unixepoch())) ORDER BY requested_at,id LIMIT 1) RETURNING id,kind,pr,merge_sha",run);
+    [task] = await query("UPDATE engineering_queue SET status='running', attempts=attempts+1, run_id=?, lease_until=unixepoch()+600 WHERE id=(SELECT id FROM engineering_queue WHERE attempts<3 AND (status='queued' OR (status='running' AND lease_until<unixepoch())) ORDER BY requested_at,id LIMIT 1) AND EXISTS(SELECT 1 FROM engineering_control WHERE id=1 AND paused=0) RETURNING id,kind,pr,merge_sha",run);
     if(task || check===attempts-1) break;
     await delay(8000);
   }
   if (!task) {
+    if (!await isPaused()) await inspectIdleRepository();
     console.log('No eligible engineering task');
     process.exit(0);
   }
@@ -72,6 +97,7 @@ if (mode === 'prepare') {
   const [owned]=await query("SELECT id FROM engineering_queue WHERE id=? AND run_id=? AND status='running' AND lease_until>unixepoch()",task.id,run);
   assert.ok(owned,'lost task lease');
   let pr=task.pr, merged=task.merge_sha;
+  if (!merged) assert.equal(await isPaused(),false,'engineering claims paused');
   if (!pr) {
     verify(task);
     const ref=await github('/git/ref/heads/main');
@@ -110,6 +136,7 @@ if (mode === 'prepare') {
       assert.deepEqual(head.parents.map(parent=>parent.sha),[base]);
       const blob=await github('/contents/'+path+'?ref='+record.head.sha);
       assert.equal(Buffer.from(blob.content,'base64').toString('utf8'),transform(readBase(),task.kind));
+      assert.equal(await isPaused(),false,'engineering merges paused');
       const result=await github('/pulls/'+pr+'/merge','PUT',{sha:record.head.sha,merge_method:'squash'});
       assert.equal(result.merged,true);
       merged=result.sha;

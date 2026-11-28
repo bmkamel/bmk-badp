@@ -2,7 +2,7 @@ name: BADP Engineering Queue
 on:
   push:
     branches: [main]
-    paths: ['.github/workflows/engineering-queue.yml']
+    paths: ['.github/workflows/engineering-queue.yml', 'scripts/engineering-queue.mjs']
   workflow_dispatch:
   schedule:
     - cron: '3,13,23,33,43,53 * * * *'

@@ -28,6 +28,7 @@ jobs:
           CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           GITHUB_CLIENT_ID: ${{ secrets.CLIENT_ID }}
           GITHUB_CLIENT_SECRET: ${{ secrets.CLIENT_SECRET }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: |
           set -eu
           umask 077
@@ -46,7 +47,9 @@ jobs:
               {type:"secret_text", name:"GITHUB_CLIENT_SECRET", text:env.GITHUB_CLIENT_SECRET},
               {type:"secret_text", name:"SESSION_SECRET", text:env.SESSION_SECRET}
             ]
-          }' > "$metadata"
+          } | if (env.OPENROUTER_API_KEY // "") != "" then
+            .bindings += [{type:"secret_text", name:"OPENROUTER_API_KEY", text:env.OPENROUTER_API_KEY}]
+          else . end' > "$metadata"
           modules=()
           for module in preview/*.mjs src/{development-runner,d1-run-store,static-sandbox,plan,patch-policy,pipeline,run-store}.mjs; do
             modules+=(-F "$module=@$module;type=application/javascript+module;filename=$module")
@@ -62,7 +65,7 @@ jobs:
           base=https://badp-r1-preview.bmkamel.workers.dev
           ready=false
           for attempt in {1..8}; do
-            if curl -fsS --max-time 10 "$base/api/health" | jq -e '.version == "r1-oauth-recovery-3"' >/dev/null &&
+            if curl -fsS --max-time 10 "$base/api/health" | jq -e '.version == "r1-development-chat-1"' >/dev/null &&
                curl -fsS --max-time 10 "$base/" | grep -q 'href="/auth/github"'; then
               ready=true
               break
@@ -73,6 +76,8 @@ jobs:
           curl --fail --silent --show-error --max-time 20 "$base/" -o "$RUNNER_TEMP/landing.html"
           grep -q 'href="/auth/github"' "$RUNNER_TEMP/landing.html"
           test "$(curl -sS --max-time 20 -o /dev/null -w '%{http_code}' "$base/dashboard")" = 401
+          test "$(curl -sS --max-time 20 -o /dev/null -w '%{http_code}' "$base/api/chat")" = 401
+          test "$(curl -sS --max-time 20 -o /dev/null -w '%{http_code}' -X POST "$base/api/chat")" = 401
           test "$(curl -sS --max-time 20 -o /dev/null -w '%{http_code}' "$base/api/development/validation")" = 401
           test "$(curl -sS --max-time 20 -o /dev/null -w '%{http_code}' -X POST "$base/api/development/validation")" = 401
           test "$(curl -sS --max-time 20 -o /dev/null -w '%{http_code}' "$base/auth/github/callback?code=invalid")" = 403

@@ -126,6 +126,11 @@ function client() {
       return line;
     }));
   }
+  $('prompt').addEventListener('keydown', event => {
+    if (event.key !== 'Enter' || (!event.ctrlKey && !event.metaKey) || event.isComposing || $('send').disabled) return;
+    event.preventDefault();
+    $('composer').requestSubmit();
+  });
   $('composer').onsubmit = async event => {
     event.preventDefault();
     error.textContent = '';

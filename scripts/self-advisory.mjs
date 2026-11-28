@@ -22,6 +22,17 @@ const db = {prepare(sql) { return {bind(...params) { return {async run() {
   return json.result[0];
 }}; }}; }};
 const report = JSON.parse(execFileSync(process.execPath, ['scripts/blueprint-inspect.mjs'], {encoding: 'utf8'}));
+const prior = await db.prepare('SELECT task_id FROM self_cycle_plans WHERE task_id=? AND blueprint_digest=? AND base_sha=? LIMIT 1')
+  .bind(report.taskId,report.blueprintDigest,report.base).run();
+const pending=await db.prepare("SELECT id FROM engineering_model_tasks WHERE status IN ('queued','running') LIMIT 1").bind().run();
+if (pending.results?.length) {
+  console.log('Reserving daily inference capacity for pending engineering work');
+  process.exit(0);
+}
+if (prior.results?.length) {
+  console.log('Reusing recorded blueprint advisory');
+  process.exit(0);
+}
 const send = createOpenRouterFreeTransport({apiKey, admission: d1AiBudget(db), publicSourceApproved: true});
 try {
   const advice = await planSelfTask({report, model: {generate: ({prompt}) => send({

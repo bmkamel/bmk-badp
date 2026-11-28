@@ -9,7 +9,7 @@ export async function engineeringRoute(request, env, headers) {
   if (!db) return reply({error:'storage_unavailable'}, 503);
   try {
     if (request.method === 'GET') {
-      const {results} = await db.prepare('SELECT id,kind,status,run_id,pr,merge_sha,evidence FROM engineering_queue WHERE owner=? ORDER BY requested_at DESC LIMIT 15').bind(owner).all();
+      const {results} = await db.prepare('SELECT id,kind,recipe,status,run_id,pr,merge_sha,evidence FROM engineering_queue WHERE owner=? ORDER BY requested_at DESC LIMIT 15').bind(owner).all();
       const control = await db.prepare('SELECT paused FROM engineering_control WHERE id=1').first();
       const inspection = await db.prepare('SELECT day,base_sha,observed_sha,source_status,run_id FROM engineering_inspections ORDER BY day DESC LIMIT 1').first();
       return reply({tasks:results,paused:control?.paused!==0,inspection});

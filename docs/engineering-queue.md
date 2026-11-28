@@ -19,3 +19,5 @@ Reviewed 2026-11-28. These are design comparisons, not benchmark rankings or app
 - Cloudflare deployment versions preserve code and bindings independently of D1 state. The rollback guard uses that distinction and verifies the recovered source SHA. https://developers.cloudflare.com/workers/versions-and-deployments/
 
 The authenticated dashboard can pause new claims and merges. A publication that has already merged still finishes deployment verification. While idle, the worker records at most one policy/source/deployment inspection per UTC day. The record includes the blueprint and charter digests, observed release, allowlisted official source, and workflow link. Source availability is not a general assessment of upstream guidance.
+
+The dashboard discovery rule inspects the checkout for a missing theme selector after system theme support exists. It records a typed recipe once per owner. The scheduler verifies the official color-scheme reference and the exact one-file candidate before opening the PR, using the same merge and deployed-SHA gates.

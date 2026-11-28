@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import {execFileSync} from 'node:child_process';
 import {readFileSync, writeFileSync} from 'node:fs';
 import {randomUUID,createHash} from 'node:crypto';
-import {path, source, transform} from './engineering-transform.mjs';
+import {discoverDashboardRecipe, path, source, transform} from './engineering-transform.mjs';
 
 const repository = 'bmkamel/bmk-badp';
 assert.equal(process.env.GITHUB_REPOSITORY, repository);
@@ -34,11 +34,12 @@ async function query(sql,...params) {
 function safeTask(task) {
   assert.match(task.id,/^[a-f0-9-]{36}$/);
   assert.ok(['dashboard-theme','composer-keyboard'].includes(task.kind));
+  assert.ok(task.recipe == null || (task.kind==='dashboard-theme'&&task.recipe==='dashboard-theme-selector'));
 }
 function verify(task) {
   safeTask(task);
   const current = readFileSync(path,'utf8');
-  assert.equal(current, transform(readBase(),task.kind));
+  assert.equal(current, transform(readBase(),task.recipe??task.kind));
   assert.equal(execFileSync('git',['diff','--name-only'],{encoding:'utf8'}).trim(),path);
   execFileSync('git',['diff','--check']);
 }
@@ -67,10 +68,15 @@ if (mode === 'prepare') {
     console.log('Engineering claims paused by owner');
     process.exit(0);
   }
+  const recipe=discoverDashboardRecipe(readBase());
+  if (recipe) {
+    const inserted=await query("INSERT OR IGNORE INTO engineering_queue(id,owner,kind,recipe) SELECT ?,owner,'dashboard-theme',? FROM engineering_queue WHERE kind='dashboard-theme' AND recipe IS NULL AND status='verified' AND EXISTS(SELECT 1 FROM engineering_control WHERE id=1 AND paused=0) LIMIT 1 RETURNING id",randomUUID(),recipe);
+    if(inserted.length) console.log('Discovered missing explicit dashboard theme control and queued '+recipe);
+  }
   let task;
   const attempts=process.env.GITHUB_EVENT_NAME==='push'?9:1;
   for(let check=0;check<attempts;check++) {
-    [task] = await query("UPDATE engineering_queue SET status='running', attempts=attempts+1, run_id=?, lease_until=unixepoch()+600 WHERE id=(SELECT id FROM engineering_queue WHERE attempts<3 AND (status='queued' OR (status='running' AND lease_until<unixepoch())) ORDER BY requested_at,id LIMIT 1) AND EXISTS(SELECT 1 FROM engineering_control WHERE id=1 AND paused=0) RETURNING id,kind,pr,merge_sha",run);
+    [task] = await query("UPDATE engineering_queue SET status='running', attempts=attempts+1, run_id=?, lease_until=unixepoch()+600 WHERE id=(SELECT id FROM engineering_queue WHERE attempts<3 AND (status='queued' OR (status='running' AND lease_until<unixepoch())) ORDER BY requested_at,id LIMIT 1) AND EXISTS(SELECT 1 FROM engineering_control WHERE id=1 AND paused=0) RETURNING id,kind,recipe,pr,merge_sha",run);
     if(task || check===attempts-1) break;
     await delay(8000);
   }
@@ -86,10 +92,10 @@ if (mode === 'prepare') {
       const evidence = await fetch(source,{redirect:'error',signal:AbortSignal.timeout(10000)});
       assert.ok(evidence.ok && (await evidence.text()).includes('prefers-color-scheme'),'official source unavailable');
     }
-    writeFileSync(path,transform(readBase(),task.kind));
+    writeFileSync(path,transform(readBase(),task.recipe??task.kind));
     verify(task);
   }
-  console.log('Claimed '+task.kind+' in '+workflowUrl);
+  console.log('Claimed '+(task.recipe??task.kind)+' in '+workflowUrl);
 } else if (mode === 'publish') {
   const task=JSON.parse(readFileSync(file,'utf8'));
   safeTask(task);
@@ -106,7 +112,7 @@ if (mode === 'prepare') {
     const current=await github('/git/commits/'+base);
     const tree=await github('/git/trees','POST',{base_tree:current.tree.sha,tree:[{path,mode:'100644',type:'blob',content:readFileSync(path,'utf8')}]});
     const actor={name:'BADP Engineering',email:'41898282+github-actions[bot]@users.noreply.github.com',date:current.committer.date};
-    const commit=await github('/git/commits','POST',{tree:tree.sha,parents:[base],author:actor,committer:actor,message:'BADP: '+task.kind+' '+task.id});
+    const commit=await github('/git/commits','POST',{tree:tree.sha,parents:[base],author:actor,committer:actor,message:'BADP: '+(task.recipe??task.kind)+' '+task.id});
     const existing=await github('/pulls?state=all&head=bmkamel:'+branch);
     assert.ok(existing.length<=1);
     if (existing[0]) {
@@ -118,7 +124,7 @@ if (mode === 'prepare') {
         const ref=await github('/git/ref/heads/'+branch);
         assert.equal(ref.object.sha,commit.sha);
       });
-      const opened=await github('/pulls','POST',{head:branch,base:'main',title:'BADP: '+task.kind,
+      const opened=await github('/pulls','POST',{head:branch,base:'main',title:'BADP: '+(task.recipe??task.kind),
         body:'Scoped change to '+path+'. Verified by '+workflowUrl+(task.kind==='dashboard-theme'?'\n\nResearch: '+source:'')});
       pr=opened.number;
     }
@@ -135,7 +141,7 @@ if (mode === 'prepare') {
       const head=await github('/git/commits/'+record.head.sha);
       assert.deepEqual(head.parents.map(parent=>parent.sha),[base]);
       const blob=await github('/contents/'+path+'?ref='+record.head.sha);
-      assert.equal(Buffer.from(blob.content,'base64').toString('utf8'),transform(readBase(),task.kind));
+      assert.equal(Buffer.from(blob.content,'base64').toString('utf8'),transform(readBase(),task.recipe??task.kind));
       assert.equal(await isPaused(),false,'engineering merges paused');
       const result=await github('/pulls/'+pr+'/merge','PUT',{sha:record.head.sha,merge_method:'squash'});
       assert.equal(result.merged,true);
@@ -154,7 +160,7 @@ if (mode === 'prepare') {
   }
   assert.ok(live,'deployment revision not verified');
   await query("UPDATE engineering_queue SET status='verified',lease_until=0,evidence=? WHERE id=? AND run_id=?",workflowUrl,task.id,run);
-  if(task.kind==='dashboard-theme') {
+  if(task.kind==='dashboard-theme' && !task.recipe) {
     await query("INSERT INTO engineering_queue(id,owner,kind) SELECT ?,owner,'composer-keyboard' FROM engineering_queue WHERE id=? AND NOT EXISTS(SELECT 1 FROM engineering_queue WHERE kind='composer-keyboard')",randomUUID(),task.id);
     await github('/actions/workflows/engineering-queue.yml/dispatches','POST',{ref:'main'});
   }

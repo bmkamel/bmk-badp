@@ -118,7 +118,7 @@ function client() {
       const line=node('li');
       const status={queued:t('Queued','في الانتظار'),running:t('Running','قيد التنفيذ'),
         paused:t('Paused','متوقفة'),blocked:t('Blocked','متعذرة'),verified:t('Deployment verified','تم التحقق من النشر')};
-      line.append(node('span',(task.kind==='dashboard-theme'?t('Dashboard theme','مظهر اللوحة'):t('Composer keyboard shortcut','اختصار لوحة المفاتيح'))+' · '+status[task.status]+' '));
+      line.append(node('span',(task.recipe==='dashboard-theme-selector'?t('Dashboard theme selector','اختيار مظهر اللوحة'):task.kind==='dashboard-theme'?t('Dashboard theme','مظهر اللوحة'):t('Composer keyboard shortcut','اختصار لوحة المفاتيح'))+' · '+status[task.status]+' '));
       if(task.pr){
         const link=node('a',t('Pull request','طلب الدمج'));
         link.href='https://github.com/bmkamel/bmk-badp/pull/'+task.pr;

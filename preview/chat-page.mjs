@@ -98,7 +98,19 @@ function client() {
     return response.json();
   }
   async function refreshEngineering() {
-    const {tasks}=await engineering();
+    const {tasks,paused,inspection}=await engineering();
+    $('engineering-switch').textContent=paused?t('Resume engineering','استئناف التشغيل الهندسي'):t('Pause engineering','إيقاف التشغيل الهندسي');
+    $('engineering-switch').onclick=async()=>{try{
+      await engineering({action:paused?'resume-system':'pause-system'});await refreshEngineering();
+    }catch(error){show(error);}};
+    $('engineering-switch').hidden=false;
+    const status=$('engineering-inspection');
+    status.textContent=inspection ? t('Latest inspection: ','آخر فحص: ')+new Date(inspection.day*86400000).toISOString().slice(0,10) : '';
+    if(inspection){
+      const link=node('a',t('View logs','عرض السجل'));
+      link.href='https://github.com/bmkamel/bmk-badp/actions/runs/'+inspection.run_id;
+      status.append(' ',link);
+    }
     const fingerprint=JSON.stringify(tasks);
     if (fingerprint===refreshEngineering.last) return;
     refreshEngineering.last=fingerprint;
@@ -178,7 +190,7 @@ button:disabled{opacity:.6}article{padding:12px 16px;border:1px solid var(--line
 <form method="post" action="/auth/logout"><button>${t('Sign out','تسجيل الخروج')}</button></form></nav></header>
 <main><h1>${t('Development chat','محادثة التطوير')}</h1>
 <p>${t('Send a design, report, programming or general request in Arabic or English.','أرسل طلب تصميم أو تقرير أو برمجة أو أي طلب عام بالعربية أو الإنجليزية.')}</p>
-<section><h2>${t('Engineering tasks','المهام الهندسية')}</h2><p>${t('Use “Improve BADP dashboard” to queue the next approved interface change.','أرسل «طور واجهة BADP» لإدراج تحسين الواجهة المعتمد في قائمة التنفيذ.')}</p><ul id="engineering-history"></ul></section>
+<section><h2>${t('Engineering tasks','المهام الهندسية')}</h2><p>${t('Use “Improve BADP dashboard” to queue the next approved interface change.','أرسل «طور واجهة BADP» لإدراج تحسين الواجهة المعتمد في قائمة التنفيذ.')}</p><button id="engineering-switch" hidden></button><p id="engineering-inspection"></p><ul id="engineering-history"></ul></section>
 <section id="history" aria-label="${t('Conversation history','سجل المحادثة')}"></section>
 <p id="empty">${t('No development tasks yet.','لم تُرسل مهام تطوير بعد.')}</p>
 <form id="composer"><label for="prompt">${t('Development command','أمر التطوير')}</label>

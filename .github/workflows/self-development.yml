@@ -1,0 +1,44 @@
+name: BADP Self Development
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/self-development.yml']
+  workflow_dispatch:
+  schedule:
+    - cron: '17 * * * *'
+concurrency:
+  group: badp-self-development
+  cancel-in-progress: false
+permissions:
+  contents: read
+jobs:
+  advance:
+    if: github.repository == 'bmkamel/bmk-badp' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      actions: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Select and verify one blueprint task
+        id: candidate
+        run: |
+          node scripts/self-cycle.mjs prepare
+          if test -f "$RUNNER_TEMP/badp-self-task.json"; then
+            printf 'ready=true\n' >> "$GITHUB_OUTPUT"
+          fi
+      - if: steps.candidate.outputs.ready == 'true'
+        name: Run repository tests
+        run: npm test
+      - if: steps.candidate.outputs.ready == 'true'
+        name: Publish the verified change
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/self-cycle.mjs publish

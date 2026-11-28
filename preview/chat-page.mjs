@@ -13,7 +13,6 @@ function client() {
   };
   const names = {
     daily_limit: t('Daily task limit reached. Try again tomorrow.', 'بلغت الحد اليومي للمهام. حاول مجددًا غدًا.'),
-    unsupported_task: t('Ask for a static page or HTML preview.', 'اطلب إنشاء صفحة ثابتة أو معاينة HTML.'),
     invalid_attachment: t('Attach a TXT, MD, CSV or JSON file up to 4 KB.', 'أرفق ملف TXT أو MD أو CSV أو JSON بحجم لا يتجاوز 4 كيلوبايت.'),
     invalid_state: t('The task has changed. Check its latest status.', 'تغيّرت حالة المهمة. اطّلع على حالتها الحالية.'),
   };
@@ -47,12 +46,14 @@ function client() {
       prompt.className = 'message';
       article.append(prompt);
       if (task.attachment_name) article.append(node('small', task.attachment_name));
-      const status = labels[task.state] ?? task.state;
+      const category = {design:t('Design','تصميم'),report:t('Report','تقرير'),
+        code:t('Programming draft','مسودة برمجية'),general:t('General request','طلب عام')}[task.kind];
+      const status = [category, labels[task.state] ?? task.state].filter(Boolean).join(' · ');
       const phase = task.state === 'running' && labels[task.stage] ? ' · '+labels[task.stage] : '';
       article.append(node('p', status+phase));
       const actions = node('div');
       if (task.state === 'review') {
-        const link = node('a', t('Open preview', 'فتح المعاينة'));
+        const link = node('a', t('Open result', 'فتح النتيجة'));
         link.href = '/api/chat/'+task.id+'/preview';
         link.target = '_blank';
         link.rel = 'noopener';
@@ -97,7 +98,7 @@ function client() {
       const file = $('file').files[0];
       if (file?.size > 4000) throw Error('invalid_attachment');
       const attachment = file ? {name: file.name, text: await file.text()} : undefined;
-      const payload = {id: crypto.randomUUID(), prompt: $('prompt').value, attachment};
+      const payload = {id: crypto.randomUUID(), prompt: $('prompt').value, attachment, allowAi: $('allow-ai').checked};
       await api('', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)});
       $('composer').reset();
       await refresh();
@@ -125,12 +126,13 @@ button:disabled{opacity:.6}article{padding:12px 16px;border:1px solid var(--line
 </style><header><strong>BMK BADP</strong><nav><a href="?lang=${ar ? 'en' : 'ar'}">${ar ? 'English' : 'العربية'}</a>
 <form method="post" action="/auth/logout"><button>${t('Sign out','تسجيل الخروج')}</button></form></nav></header>
 <main><h1>${t('Development chat','محادثة التطوير')}</h1>
-<p>${t('Ask BADP to create and test a static HTML preview in Arabic or English.','اطلب من BADP إنشاء معاينة HTML ثابتة واختبارها بالعربية أو الإنجليزية.')}</p>
+<p>${t('Send a design, report, programming or general request in Arabic or English.','أرسل طلب تصميم أو تقرير أو برمجة أو أي طلب عام بالعربية أو الإنجليزية.')}</p>
 <section id="history" aria-label="${t('Conversation history','سجل المحادثة')}"></section>
 <p id="empty">${t('No development tasks yet.','لم تُرسل مهام تطوير بعد.')}</p>
 <form id="composer"><label for="prompt">${t('Development command','أمر التطوير')}</label>
 <textarea id="prompt" dir="auto" required maxlength="2000" placeholder="${t('Create a static page for the project overview','أنشئ صفحة ثابتة للتعريف بالمشروع')}"></textarea>
 <div class="tools"><label for="file">${t('Attach text (4 KB max)','إرفاق ملف نصي (حتى 4 كيلوبايت)')}</label><input id="file" type="file" accept=".txt,.md,.json,.csv">
+<label><input id="allow-ai" type="checkbox"> ${t('Send this public command to OpenRouter for an AI draft','إرسال هذا الأمر العام إلى OpenRouter لإعداد مسودة بالذكاء الاصطناعي')}</label>
 <button id="send">${t('Send','إرسال')}</button></div><p id="error" role="status"></p></form>
 <p><a href="/api/development/validation">${t('Engine verification','التحقق من المحرك')}</a></p>
 </main><script src="/dashboard/chat.js" defer></script></html>`;

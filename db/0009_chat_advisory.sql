@@ -1,0 +1,1 @@
+ALTER TABLE chat_tasks ADD COLUMN allow_ai INTEGER NOT NULL DEFAULT 0 CHECK(allow_ai IN (0,1));

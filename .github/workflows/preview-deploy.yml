@@ -4,6 +4,9 @@ on:
     branches: [main]
     paths: ['preview/**', '.github/workflows/preview-deploy.yml']
   workflow_dispatch:
+concurrency:
+  group: badp-r1-preview
+  cancel-in-progress: false
 permissions:
   contents: read
 jobs:
@@ -20,12 +23,47 @@ jobs:
           node --check preview/worker.mjs
           node --test test/preview-boundary.test.mjs
           node --input-type=module -e 'import w from "./preview/worker.mjs"; import assert from "node:assert/strict"; for(const [q,expected] of [["","lang=\"en\""],["?lang=ar","dir=\"rtl\""]]) { const r=await w.fetch(new Request("https://example.com/"+q)); assert.equal(r.status,200); assert.ok((await r.text()).includes(expected)); }'
-      - name: Deploy preview
+      - name: Deploy authenticated preview
         env:
           CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          GITHUB_CLIENT_ID: ${{ secrets.CLIENT_ID }}
+          GITHUB_CLIENT_SECRET: ${{ secrets.CLIENT_SECRET }}
         run: |
           set -eu
-          test -n "$CF_TOKEN"
-          curl --fail --silent --show-error --max-time 30 -X PUT -H "Authorization: Bearer $CF_TOKEN" -F 'metadata={"main_module":"worker.mjs","compatibility_date":"2026-01-01"};type=application/json' -F 'worker.mjs=@preview/worker.mjs;type=application/javascript+module' -F 'auth.mjs=@preview/auth.mjs;type=application/javascript+module' -F 'oauth.mjs=@preview/oauth.mjs;type=application/javascript+module' -F 'auth-state.mjs=@preview/auth-state.mjs;type=application/javascript+module' -F 'auth-routes.mjs=@preview/auth-routes.mjs;type=application/javascript+module' 'https://api.cloudflare.com/client/v4/accounts/bae249433042911808956a8d6f145ba2/workers/scripts/badp-r1-preview' -o "$RUNNER_TEMP/deploy.json"
+          umask 077
+          test -n "$CF_TOKEN" && test -n "$GITHUB_CLIENT_ID" && test -n "$GITHUB_CLIENT_SECRET"
+          export SESSION_SECRET="$(openssl rand -hex 32)"
+          metadata="$(mktemp)"
+          trap 'rm -f "$metadata"' EXIT
+          jq -n '{
+            main_module: "worker.mjs",
+            compatibility_date: "2026-01-01",
+            bindings: [
+              {type:"d1", name:"AUTH_DB", id:"184665b7-4bf8-4d73-9d0d-6a41e780541f"},
+              {type:"plain_text", name:"GITHUB_ALLOWED_ID", text:"293351277"},
+              {type:"secret_text", name:"GITHUB_CLIENT_ID", text:env.GITHUB_CLIENT_ID},
+              {type:"secret_text", name:"GITHUB_CLIENT_SECRET", text:env.GITHUB_CLIENT_SECRET},
+              {type:"secret_text", name:"SESSION_SECRET", text:env.SESSION_SECRET}
+            ]
+          }' > "$metadata"
+          modules=()
+          for module in preview/*.mjs; do
+            modules+=(-F "${module##*/}=@$module;type=application/javascript+module")
+          done
+          curl --fail --silent --show-error --max-time 30 -X PUT -H "Authorization: Bearer $CF_TOKEN" \
+            -F "metadata=@$metadata;type=application/json" "${modules[@]}" \
+            'https://api.cloudflare.com/client/v4/accounts/bae249433042911808956a8d6f145ba2/workers/scripts/badp-r1-preview' \
+            -o "$RUNNER_TEMP/deploy.json"
           jq -e '.success == true' "$RUNNER_TEMP/deploy.json" >/dev/null
-          curl --fail --silent --show-error --retry 3 --retry-delay 3 --max-time 20 'https://badp-r1-preview.bmkamel.workers.dev/api/health' | jq -e '.version == "auth-boundary-2"'
+      - name: Verify deployed authentication boundary
+        run: |
+          set -eu
+          base=https://badp-r1-preview.bmkamel.workers.dev
+          curl --fail --silent --show-error --retry 3 --retry-delay 3 --max-time 20 "$base/api/health" | jq -e '.version == "auth-boundary-2"'
+          curl --fail --silent --show-error --max-time 20 "$base/" -o "$RUNNER_TEMP/landing.html"
+          grep -q 'href="/auth/github"' "$RUNNER_TEMP/landing.html"
+          test "$(curl -sS --max-time 20 -o /dev/null -w '%{http_code}' "$base/dashboard")" = 401
+          test "$(curl -sS --max-time 20 -o /dev/null -w '%{http_code}' "$base/auth/github/callback?code=invalid")" = 403
+          test "$(curl -sS --max-time 20 -o /dev/null -D "$RUNNER_TEMP/oauth-headers" -w '%{http_code}' "$base/auth/github")" = 303
+          grep -qi '^location: https://github.com/login/oauth/authorize?' "$RUNNER_TEMP/oauth-headers"
+          grep -qi '^set-cookie: __Host-badp-oauth=.*Secure; HttpOnly; SameSite=Lax' "$RUNNER_TEMP/oauth-headers"

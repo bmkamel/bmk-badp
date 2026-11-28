@@ -10,7 +10,7 @@ const encoder = new TextEncoder();
 const statement = (db, sql, ...params) => db.prepare(sql).bind(...params);
 const internal = (db, owner, id) => statement(db, 'SELECT * FROM chat_tasks WHERE owner=? AND id=?', owner, id).first();
 
-async function boundedJson(request) {
+export async function boundedJson(request) {
   if (request.headers.get('Content-Type')?.split(';')[0] !== 'application/json') throw Error('invalid_input');
   const reader = request.body?.getReader();
   if (!reader) throw Error('invalid_input');

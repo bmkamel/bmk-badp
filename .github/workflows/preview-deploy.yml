@@ -62,7 +62,7 @@ jobs:
           base=https://badp-r1-preview.bmkamel.workers.dev
           ready=false
           for attempt in {1..8}; do
-            if curl -fsS --max-time 10 "$base/api/health" | jq -e '.version == "r1-persistent-engine-1"' >/dev/null &&
+            if curl -fsS --max-time 10 "$base/api/health" | jq -e '.version == "r1-oauth-recovery-1"' >/dev/null &&
                curl -fsS --max-time 10 "$base/" | grep -q 'href="/auth/github"'; then
               ready=true
               break
@@ -78,4 +78,22 @@ jobs:
           test "$(curl -sS --max-time 20 -o /dev/null -w '%{http_code}' "$base/auth/github/callback?code=invalid")" = 403
           test "$(curl -sS --max-time 20 -o /dev/null -D "$RUNNER_TEMP/oauth-headers" -w '%{http_code}' "$base/auth/github")" = 303
           grep -qi '^location: https://github.com/login/oauth/authorize?' "$RUNNER_TEMP/oauth-headers"
-          grep -qi '^set-cookie: __Host-badp-oauth=.*Secure; HttpOnly; SameSite=Lax' "$RUNNER_TEMP/oauth-headers"
+          grep -qi '^set-cookie: __Host-badp-oauth-.*=.*Secure; HttpOnly; SameSite=Lax' "$RUNNER_TEMP/oauth-headers"
+          node --input-type=module <<'JS'
+          import assert from 'node:assert/strict';
+          const origin = 'https://badp-r1-preview.bmkamel.workers.dev';
+          const start = await fetch(origin+'/auth/github', {redirect:'manual'});
+          assert.equal(start.status, 303);
+          const state = new URL(start.headers.get('location')).searchParams.get('state');
+          const cookie = start.headers.get('set-cookie').split(';')[0];
+          const callback = new URL('/auth/github/callback', origin);
+          callback.search = new URLSearchParams({state, code:'badp_invalid_smoke_code'});
+          const check = async expected => {
+            const response = await fetch(callback, {headers:{Cookie:cookie}, redirect:'manual'});
+            assert.equal(response.status, 403);
+            const reason = (await response.text()).match(/\[([a-z_]+)\]/)?.[1];
+            assert.equal(reason, expected);
+          };
+          await check('oauth_code');
+          await check('invalid_oauth_transaction');
+          JS

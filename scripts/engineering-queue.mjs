@@ -73,6 +73,8 @@ if (mode === 'prepare') {
     const inserted=await query("INSERT OR IGNORE INTO engineering_queue(id,owner,kind,recipe) SELECT ?,owner,'dashboard-theme',? FROM engineering_queue WHERE kind='dashboard-theme' AND recipe IS NULL AND status='verified' AND EXISTS(SELECT 1 FROM engineering_control WHERE id=1 AND paused=0) LIMIT 1 RETURNING id",randomUUID(),recipe);
     if(inserted.length) console.log('Discovered missing explicit dashboard theme control and queued '+recipe);
   }
+  // A cancelled runner cannot execute its recovery step. Reconcile exhausted leases.
+  await query("UPDATE engineering_queue SET status='blocked',lease_until=0 WHERE status='running' AND attempts>=3 AND lease_until<unixepoch()");
   let task;
   const attempts=process.env.GITHUB_EVENT_NAME==='push'?9:1;
   for(let check=0;check<attempts;check++) {

@@ -161,10 +161,14 @@ if (mode === 'prepare') {
     await delay(5000);
   }
   assert.ok(live,'deployment revision not verified');
-  await query("UPDATE engineering_queue SET status='verified',lease_until=0,evidence=? WHERE id=? AND run_id=?",workflowUrl,task.id,run);
+  // Queue the successor before finalizing: a cancelled run can safely retry this insert.
   if(task.kind==='dashboard-theme' && !task.recipe) {
-    await query("INSERT INTO engineering_queue(id,owner,kind) SELECT ?,owner,'composer-keyboard' FROM engineering_queue WHERE id=? AND NOT EXISTS(SELECT 1 FROM engineering_queue WHERE kind='composer-keyboard')",randomUUID(),task.id);
-    await github('/actions/workflows/engineering-queue.yml/dispatches','POST',{ref:'main'});
+    await query("INSERT INTO engineering_queue(id,owner,kind) SELECT ?,owner,'composer-keyboard' FROM engineering_queue WHERE id=? AND run_id=? AND status='running' AND lease_until>unixepoch() AND NOT EXISTS(SELECT 1 FROM engineering_queue WHERE kind='composer-keyboard')",randomUUID(),task.id,run);
+  }
+  await query("UPDATE engineering_queue SET status='verified',lease_until=0,evidence=? WHERE id=? AND run_id=? AND status='running' AND lease_until>unixepoch()",workflowUrl,task.id,run);
+  // The scheduled workflow will claim the successor even if dispatch fails.
+  if(task.kind==='dashboard-theme' && !task.recipe) {
+    await github('/actions/workflows/engineering-queue.yml/dispatches','POST',{ref:'main'}).catch(()=>console.log('Successor awaits scheduled claim'));
   }
   console.log('Verified deployment '+merged+' from PR '+pr);
 } else if (mode === 'recover') {

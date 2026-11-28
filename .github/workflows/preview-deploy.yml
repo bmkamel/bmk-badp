@@ -42,6 +42,7 @@ jobs:
             bindings: [
               {type:"d1", name:"AUTH_DB", id:"184665b7-4bf8-4d73-9d0d-6a41e780541f"},
               {type:"d1", name:"ENGINE_DB", id:"c52bcd53-f510-4340-9a96-30eef4127345"},
+              {type:"plain_text", name:"SOURCE_SHA", text:env.GITHUB_SHA},
               {type:"plain_text", name:"GITHUB_ALLOWED_ID", text:"293351277"},
               {type:"secret_text", name:"GITHUB_CLIENT_ID", text:env.GITHUB_CLIENT_ID},
               {type:"secret_text", name:"GITHUB_CLIENT_SECRET", text:env.GITHUB_CLIENT_SECRET},
@@ -65,7 +66,7 @@ jobs:
           base=https://badp-r1-preview.bmkamel.workers.dev
           ready=false
           for attempt in {1..8}; do
-            if curl -fsS --max-time 10 "$base/api/health" | jq -e '.version == "r1-development-chat-2"' >/dev/null &&
+            if curl -fsS --max-time 10 "$base/api/health" | jq -e '.version == "r1-engineering-queue-1"' >/dev/null &&
                curl -fsS --max-time 10 "$base/" | grep -q 'href="/auth/github"'; then
               ready=true
               break

@@ -1,0 +1,53 @@
+name: BADP Engineering Queue
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/engineering-queue.yml']
+  workflow_dispatch:
+  schedule:
+    - cron: '3,13,23,33,43,53 * * * *'
+concurrency:
+  group: badp-engineering-queue
+  cancel-in-progress: false
+permissions:
+  contents: read
+jobs:
+  advance:
+    if: github.repository == 'bmkamel/bmk-badp' && github.ref == 'refs/heads/main' && vars.BADP_ENGINEERING_PAUSED != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    permissions:
+      contents: write
+      actions: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Claim and inspect one scoped engineering task
+        id: candidate
+        env:
+          CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          node scripts/engineering-queue.mjs prepare
+          if test -f "$RUNNER_TEMP/engineering-candidate.json"; then
+            echo 'ready=true' >> "$GITHUB_OUTPUT"
+          fi
+      - if: steps.candidate.outputs.ready == 'true'
+        name: Run trusted regression checks with no publishing secrets
+        run: npm test
+      - if: steps.candidate.outputs.ready == 'true'
+        name: Create PR, merge, deploy, and verify the revision
+        env:
+          CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/engineering-queue.mjs publish
+      - if: failure()
+        name: Recover the task with a bounded retry
+        env:
+          CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: node scripts/engineering-queue.mjs recover

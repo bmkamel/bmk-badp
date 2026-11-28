@@ -90,11 +90,54 @@ function client() {
     }));
     $('empty').hidden = tasks.length > 0;
   }
+  async function engineering(payload) {
+    const response = await fetch('/api/engineering', payload ? {
+      method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload),
+    } : {});
+    if (!response.ok) throw Error('engineering_unavailable');
+    return response.json();
+  }
+  async function refreshEngineering() {
+    const {tasks}=await engineering();
+    const fingerprint=JSON.stringify(tasks);
+    if (fingerprint===refreshEngineering.last) return;
+    refreshEngineering.last=fingerprint;
+    $('engineering-history').replaceChildren(...tasks.map(task=>{
+      const line=node('li');
+      const status={queued:t('Queued','في الانتظار'),running:t('Running','قيد التنفيذ'),
+        paused:t('Paused','متوقفة'),blocked:t('Blocked','متعذرة'),verified:t('Deployment verified','تم التحقق من النشر')};
+      line.append(node('span',(task.kind==='dashboard-theme'?t('Dashboard theme','مظهر اللوحة'):t('Composer keyboard shortcut','اختصار لوحة المفاتيح'))+' · '+status[task.status]+' '));
+      if(task.pr){
+        const link=node('a',t('Pull request','طلب الدمج'));
+        link.href='https://github.com/bmkamel/bmk-badp/pull/'+task.pr;
+        line.append(link);
+      }
+      if(task.run_id){
+        const link=node('a',t(' Run evidence',' سجل التشغيل'));
+        link.href='https://github.com/bmkamel/bmk-badp/actions/runs/'+task.run_id;
+        line.append(link);
+      }
+      if(task.status==='queued'||task.status==='paused'){
+        const pause=task.status==='queued';
+        const button=node('button',pause?t('Pause','إيقاف'):t('Resume','استئناف'));
+        button.onclick=async()=>{try{await engineering({id:task.id,action:pause?'pause':'resume'});await refreshEngineering();}catch(error){show(error);}};
+        line.append(button);
+      }
+      return line;
+    }));
+  }
   $('composer').onsubmit = async event => {
     event.preventDefault();
     error.textContent = '';
     $('send').disabled = true;
     try {
+      const command=$('prompt').value.trim();
+      if (/^(?:طور|طوّر|حسّن|حسن) واجهة badp[.!؟]?$/iu.test(command) || /^improve (?:the )?badp (?:dashboard|interface)[.!]?$/i.test(command)) {
+        await engineering({id:crypto.randomUUID(),kind:'dashboard-theme'});
+        $('composer').reset();
+        await refreshEngineering();
+        return;
+      }
       const file = $('file').files[0];
       if (file?.size > 4000) throw Error('invalid_attachment');
       const attachment = file ? {name: file.name, text: await file.text()} : undefined;
@@ -106,13 +149,14 @@ function client() {
     finally { $('send').disabled = false; }
   };
   refresh().catch(show);
-  setInterval(() => { if (!document.hidden) refresh().catch(() => {}); }, 3000);
+  refreshEngineering().catch(()=>{});
+  setInterval(() => { if (!document.hidden) { refresh().catch(() => {}); refreshEngineering().catch(()=>{}); } }, 3000);
 }
 
-export function chatPage(lang) {
+export function chatPage(lang, theme) {
   const ar = lang === 'ar';
   const t = (english, arabic) => ar ? arabic : english;
-  return `<!doctype html><html lang="${lang}" dir="${ar ? 'rtl' : 'ltr'}"><meta charset="utf-8">
+  return `<!doctype html><html lang="${lang}" dir="${ar ? 'rtl' : 'ltr'}"${theme === 'light' ? ' data-theme="light"' : ''}><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>BADP · ${t('Development chat','محادثة التطوير')}</title>
 <style>
 :root{color-scheme:dark;--bg:#0b1120;--panel:#141e31;--line:#34425e;--ink:#eef2ff;--accent:#a9def6}
@@ -127,6 +171,7 @@ button:disabled{opacity:.6}article{padding:12px 16px;border:1px solid var(--line
 <form method="post" action="/auth/logout"><button>${t('Sign out','تسجيل الخروج')}</button></form></nav></header>
 <main><h1>${t('Development chat','محادثة التطوير')}</h1>
 <p>${t('Send a design, report, programming or general request in Arabic or English.','أرسل طلب تصميم أو تقرير أو برمجة أو أي طلب عام بالعربية أو الإنجليزية.')}</p>
+<section><h2>${t('Engineering tasks','المهام الهندسية')}</h2><p>${t('Use “Improve BADP dashboard” to queue the next approved interface change.','أرسل «طور واجهة BADP» لإدراج تحسين الواجهة المعتمد في قائمة التنفيذ.')}</p><ul id="engineering-history"></ul></section>
 <section id="history" aria-label="${t('Conversation history','سجل المحادثة')}"></section>
 <p id="empty">${t('No development tasks yet.','لم تُرسل مهام تطوير بعد.')}</p>
 <form id="composer"><label for="prompt">${t('Development command','أمر التطوير')}</label>

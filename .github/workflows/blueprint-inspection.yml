@@ -1,0 +1,37 @@
+name: BADP Blueprint Inspection
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/MASTER_BLUEPRINT.md'
+      - 'scripts/blueprint-inspect.mjs'
+      - '.github/workflows/blueprint-inspection.yml'
+permissions:
+  contents: read
+concurrency:
+  group: badp-blueprint-inspection
+  cancel-in-progress: false
+jobs:
+  inspect:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify intake
+        run: node --test test/blueprint-inspect.test.mjs
+      - name: Inspect approved work order
+        run: node scripts/blueprint-inspect.mjs | tee "$RUNNER_TEMP/blueprint-inspection.json"
+        shell: bash
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: blueprint-inspection
+          path: ${{ runner.temp }}/blueprint-inspection.json
+          retention-days: 1
+          if-no-files-found: error

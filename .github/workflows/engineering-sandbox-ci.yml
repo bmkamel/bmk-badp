@@ -1,0 +1,23 @@
+name: Engineering sandbox verification
+on:
+  pull_request:
+    paths:
+      - 'scripts/locale-image.txt'
+      - 'scripts/check-locale-sandbox.mjs'
+      - '.github/workflows/engineering-sandbox-ci.yml'
+permissions:
+  contents: read
+jobs:
+  isolation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Verify isolation with the engineering image
+        run: |
+          export BADP_SMOKE_IMAGE="$(cat scripts/locale-image.txt)"
+          [[ "$BADP_SMOKE_IMAGE" =~ ^node@sha256:[a-f0-9]{64}$ ]]
+          docker pull "$BADP_SMOKE_IMAGE"
+          bash scripts/cloud-isolation-smoke.sh

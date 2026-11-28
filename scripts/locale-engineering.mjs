@@ -72,29 +72,38 @@ export function candidate(kind, source, proposal) {
   return 'export default '+JSON.stringify(result)+';\n';
 }
 
-export async function generate(kind, source, db, env) {
+export async function generate(kind, source, db, env, record, previousReason) {
   const admission = d1AiBudget(db);
   const messages = [
     {role:'system',content:'Return just the complete JSON object for the locale file. Keep its keys and make only the requested changes.'},
-    {role:'user',content:JSON.stringify({goal:targets[kind].goal,values:decodeModule(source)})},
+    {role:'user',content:JSON.stringify({goal:targets[kind].goal,values:decodeModule(source),
+      ...(previousReason==='provider_or_validation_failure'?{retry:'Check each original key, unchanged values, requested translations and JSON syntax.'}:{})})},
   ];
   const providers = [];
+  let usage;
+  const onUsage = value => {usage=value;};
   if (env.BADP_GROQ_FREE_VERIFIED === 'true' && env.GROQ_API_KEY) {
-    providers.push(['groq',createGroqTransport({apiKey:env.GROQ_API_KEY,model:'openai/gpt-oss-20b',admission,freePlanVerified:true,publicSourceApproved:true})]);
+    providers.push(['groq',createGroqTransport({apiKey:env.GROQ_API_KEY,model:'openai/gpt-oss-20b',admission,freePlanVerified:true,publicSourceApproved:true,onUsage})]);
   }
   if (env.OPENROUTER_API_KEY) {
-    providers.push(['openrouter-free',createOpenRouterFreeTransport({apiKey:env.OPENROUTER_API_KEY,admission,publicSourceApproved:true})]);
+    providers.push(['openrouter-free',createOpenRouterFreeTransport({apiKey:env.OPENROUTER_API_KEY,admission,publicSourceApproved:true,onUsage})]);
   }
   let reason = 'provider_unconfigured';
   for (const [provider,send] of providers) {
+    usage=undefined;
+    let proposal;
     try {
-      const proposal = await send({messages,jsonOutput:true});
+      proposal = await send({messages,jsonOutput:true});
       candidate(kind,source,proposal);
-      return {provider,proposal,beforeDigest:hash(source)};
     } catch (error) {
       // Keep a reason code only. Model output, prompts and credentials stay out of logs.
-      reason = /quota_denied/.test(error.message) ? 'daily_quota' : 'provider_or_validation_failure';
+      const outcome = /quota_denied/.test(error.message) ? 'daily_quota' : 'provider_or_validation_failure';
+      if (reason!=='provider_or_validation_failure') reason=outcome;
+      await record(provider,outcome,usage);
+      continue;
     }
+    await record(provider,'accepted',usage);
+    return {provider,proposal,beforeDigest:hash(source)};
   }
   return {reason};
 }

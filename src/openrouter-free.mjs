@@ -1,7 +1,7 @@
 import {developmentSchemas} from './development-schemas.mjs';
 // Explicit zero-price router, no paid fallback. Requires trusted admission and
 // public-source approval. An API key is supplied only by the operator at runtime.
-export function createOpenRouterFreeTransport({apiKey,admission,publicSourceApproved=false,fetcher=fetch}={}){
+export function createOpenRouterFreeTransport({apiKey,admission,publicSourceApproved=false,fetcher=fetch,onUsage}={}){
  if(typeof apiKey!=='string'||!apiKey.trim()||typeof admission?.reserve!=='function'||publicSourceApproved!==true)throw Error('cloud_not_authorized');
  let busy=false;
  return async ({messages,jsonOutput=false,phase})=>{
@@ -18,6 +18,7 @@ export function createOpenRouterFreeTransport({apiKey,admission,publicSourceAppr
    try{while(true){const {done,value}=await reader.read();if(done)break;length+=value.byteLength;if(length>400000){await reader.cancel();throw Error('cloud_response_limit');}chunks.push(value);}}finally{reader.releaseLock();}
    const data=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(Buffer.concat(chunks)));
    if(data.usage?.cost!==0||data.choices?.[0]?.finish_reason!=='stop'||typeof data.choices[0].message?.content!=='string')throw Error('cloud_response_unverified');
+   onUsage?.(data.usage);
    return data.choices[0].message.content;
   }finally{busy=false;}
  };

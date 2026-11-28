@@ -24,6 +24,8 @@ The dashboard discovery rule inspects the checkout for a missing theme selector 
 
 ## R1 model tasks
 
+Generation, independent verification and publication run on separate GitHub-hosted machines. The publisher verifies the artifact digest, task lease, persisted proposal and current base. Migration 0014 records provider outcomes, observed token counts and reported cost per task and run. A missing usage figure remains unknown. The dashboard displays the official research link and available usage data.
+
 Migration 0013 adds model tasks and owner requests in ENGINE_DB. The existing engineering schedule checks two public landing controls for language and theme issues. It reads MDN or Unicode CLDR, records the content digest, observation and decision, and claims a finding under a lease. Each finding has one immutable scope and one row per owner. The model receives only the public label dictionary and its task. The publisher accepts only a reviewed JSON literal module, verifies its behavior offline, and checks both the deployed revision and the affected public link texts. Broader source edits require their own verifier.
 
 The dashboard engineering inspection option records the original command privately. The request and the resulting engineering tasks have separate statuses. A completed inspection can find zero eligible changes. Commands outside the supported inspection scope remain visible for review.

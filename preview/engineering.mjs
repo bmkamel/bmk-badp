@@ -16,7 +16,10 @@ export async function engineeringRoute(request, env, headers) {
       const intake = await db.prepare('SELECT id,command,status,run_id,summary FROM engineering_intake WHERE owner=? ORDER BY requested_at DESC LIMIT 15').bind(owner).all();
       const control = await db.prepare('SELECT paused FROM engineering_control WHERE id=1').first();
       const inspection = await db.prepare('SELECT day,base_sha,observed_sha,source_status,run_id FROM engineering_inspections ORDER BY day DESC LIMIT 1').first();
-      return reply({tasks:results,intake:intake.results,paused:control?.paused!==0,inspection});
+      const usage=await db.prepare(`SELECT u.task_id,u.run_id,u.provider,u.outcome,u.prompt_tokens,u.completion_tokens,u.reported_cost
+        FROM engineering_usage u JOIN engineering_model_tasks t ON t.id=u.task_id
+        WHERE t.owner=? ORDER BY u.recorded_at DESC LIMIT 30`).bind(owner).all();
+      return reply({tasks:results,intake:intake.results,usage:usage.results,paused:control?.paused!==0,inspection});
     }
     if (request.method !== 'POST' || request.headers.get('Origin') !== url.origin) return reply({error:'origin_not_allowed'}, 403);
     const data = await boundedJson(request).catch(() => null);

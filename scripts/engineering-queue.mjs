@@ -99,7 +99,11 @@ async function discoverAndClaim() {
   safeTask(task);
   if (task.pr || (task.proposal && task.base_sha===base)) return task;
   const db = {prepare: sql => ({bind: (...params) => ({run: () => statement(sql,...params)})})};
-  const generated = await generate(task.kind,readBase(),db,process.env);
+  const tokens = n => Number.isSafeInteger(n) && n>=0 ? n : null;
+  const record = (provider,outcome,usage) => query(
+    'INSERT INTO engineering_usage(task_id,run_id,provider,outcome,prompt_tokens,completion_tokens,reported_cost) VALUES (?,?,?,?,?,?,?)',
+    task.id,run,provider,outcome,tokens(usage?.prompt_tokens),tokens(usage?.completion_tokens),usage?.cost===0?0:null);
+  const generated = await generate(task.kind,readBase(),db,process.env,record,task.reason);
   if (generated.reason) {
     const quota = generated.reason==='daily_quota';
     await query("UPDATE engineering_model_tasks SET status=CASE WHEN attempts>=3 AND ?=0 THEN 'blocked' ELSE 'queued' END, attempts=attempts-?, reason=?,lease_until=0,available_at=(CAST(unixepoch()/86400 AS INTEGER)+1)*86400 WHERE id=? AND run_id=? AND status='running'",quota?1:0,quota?1:0,generated.reason,task.id,run);
@@ -111,6 +115,10 @@ async function discoverAndClaim() {
   return updated[0];
 }
 if (mode === 'prepare') {
+  if ((await github('/commits/main')).sha!==base) {
+    console.log('Superseded workflow revision');
+    process.exit(0);
+  }
   if (await isPaused()) {
     console.log('Engineering claims paused by owner');
     process.exit(0);
@@ -131,7 +139,8 @@ if (mode === 'prepare') {
     process.exit(0);
   }
   safeTask(task);
-  writeFileSync(file,JSON.stringify({...task,base}));
+  const {id,kind,pr,merge_sha,proposal,research:recordedResearch}=task;
+  writeFileSync(file,JSON.stringify({id,kind,recipe:task.recipe,pr,merge_sha,proposal,research:recordedResearch,base}));
   if (!task.pr) {
     if (task.kind === 'dashboard-theme') {
       const evidence = await fetch(source,{redirect:'error',signal:AbortSignal.timeout(10000)});
@@ -141,12 +150,18 @@ if (mode === 'prepare') {
     verify(task);
   }
   console.log('Claimed '+(task.recipe??task.kind)+' in '+workflowUrl);
-} else if (mode === 'publish') {
+} else if (mode === 'materialize' || mode === 'publish') {
   const task=JSON.parse(readFileSync(file,'utf8'));
   safeTask(task);
   assert.equal(task.base,base);
-  const [owned]=await query("SELECT id FROM "+table+" WHERE id=? AND run_id=? AND status='running' AND lease_until>unixepoch()",task.id,run);
+  if (!task.pr) {
+    writeFileSync(path,expected(task));
+    verify(task);
+  }
+  if (mode === 'materialize') process.exit(0);
+  const [owned]=await query("SELECT * FROM "+table+" WHERE id=? AND run_id=? AND status='running' AND lease_until>unixepoch()",task.id,run);
   assert.ok(owned,'lost task lease');
+  for(const field of ['kind','pr','merge_sha','recipe','proposal','research']) assert.equal(owned[field]??null,task[field]??null,'task changed after verification');
   let pr=task.pr, merged=task.merge_sha;
   if (!merged) assert.equal(await isPaused(),false,'engineering claims paused');
   if (!pr) {

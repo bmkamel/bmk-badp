@@ -33,7 +33,6 @@ test('Arabic chat request runs the real engine and saves safe preview and checks
     }), env, null, {});
     const payload = {id, prompt: 'أنشئ صفحة تعريف بالمشروع', attachment: {name: 'brief.md', text: '<script>alert(1)</script>'}};
     assert.equal((await run('', 'POST', payload, 'https://elsewhere.example')).status, 403);
-    assert.equal((await run('', 'POST', {...payload, prompt: 'run shell commands'})).status, 422);
     assert.equal((await run('', 'POST', payload)).status, 202);
     assert.equal((await run('', 'POST', payload)).status, 202);
     const tasks = await (await run('')).json();
@@ -55,6 +54,36 @@ test('Arabic chat request runs the real engine and saves safe preview and checks
     assert.equal((await (await run('/'+parked)).json()).state, 'paused');
     assert.equal((await run('/'+parked+'/resume', 'POST')).status, 202);
     assert.equal((await (await run('/'+parked)).json()).state, 'review');
+    for (const [prompt, kind, evidence] of [
+      ['أعد تقرير المهام', 'report', 'أعداد مهام BADP'],
+      ['أصلح خطأ في المستودع', 'code', 'لم يُرسل تعديل'],
+      ['ما الخطوة التالية؟', 'general', 'معالجة الطلب'],
+    ]) {
+      const taskId = crypto.randomUUID();
+      assert.equal((await run('', 'POST', {id: taskId, prompt})).status, 202);
+      assert.equal((await (await run('')).json()).tasks.find(row => row.id === taskId).kind, kind);
+      const result = await run('/'+taskId+'/preview');
+      assert.equal(result.status, 200);
+      assert.match(await result.text(), new RegExp(evidence));
+    }
+    const originalFetch = globalThis.fetch;
+    sqlite.exec('CREATE TABLE ai_daily_budget (provider TEXT, day INTEGER, requests INTEGER, units INTEGER, PRIMARY KEY(provider,day))');
+    try {
+      env.OPENROUTER_API_KEY = 'test-only';
+      globalThis.fetch = async (_url, options) => {
+        const body = JSON.parse(options.body);
+        assert.equal(body.model, 'openrouter/free');
+        assert.equal(body.provider.max_price.request, 0);
+        assert.doesNotMatch(JSON.stringify(body), /private attachment contents/);
+        return Response.json({usage:{cost:0}, choices:[{message:{content:'Draft: fetch(input)'}}]});
+      };
+      const aiId = crypto.randomUUID();
+      assert.equal((await run('', 'POST', {id:aiId,prompt:'Implement a code helper',allowAi:true,
+        attachment:{name:'private.txt',text:'private attachment contents'}})).status, 202);
+      assert.match(await (await run('/'+aiId+'/preview')).text(), /Draft: fetch&#40;input\)/);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
     env.GITHUB_ALLOWED_ID = '456';
     assert.equal((await run('/'+id)).status, 404);
     assert.match(chatPage('ar'), /dir="rtl"/);

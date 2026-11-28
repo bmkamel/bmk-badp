@@ -2,12 +2,11 @@ import {createDevelopmentRunner} from '../src/development-runner.mjs';
 import {d1RunStore} from '../src/d1-run-store.mjs';
 import {createStaticSandboxExecutor} from '../src/static-sandbox.mjs';
 
+import {renderResult,taskKind} from './chat-result.mjs';
+
 const projectId = 'badp-chat';
-const supported = /صفحة|معاينة|موقع|page|preview|html|website/i;
 const uuid = /^[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12}$/i;
 const encoder = new TextEncoder();
-const html = text => text.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
-  .replaceAll('"', '&quot;').replaceAll("'", '&#39;');
 const statement = (db, sql, ...params) => db.prepare(sql).bind(...params);
 const internal = (db, owner, id) => statement(db, 'SELECT * FROM chat_tasks WHERE owner=? AND id=?', owner, id).first();
 
@@ -34,25 +33,29 @@ async function boundedJson(request) {
   }
 }
 
-async function suggestHeading(env, lang) {
-  if (!env.OPENROUTER_API_KEY) return null;
+async function requestAdvice(env, task, kind) {
+  if (!env.OPENROUTER_API_KEY || task.allow_ai !== 1 ||
+    /(?:BEGIN [A-Z ]*PRIVATE KEY|github_pat_|gh[pousr]_|sk-(?:or-|proj-)?|gsk_|Bearer\s+\S+|(?:password|api[_ -]?key|secret|كلمة المرور)\s*[:=])/iu.test(task.prompt)) return null;
   try {
     const permitted = await statement(env.ENGINE_DB,
-      "INSERT INTO ai_daily_budget(provider,day,requests,units) VALUES ('openrouter-chat',CAST(unixepoch()/86400 AS INTEGER),1,512) ON CONFLICT(provider,day) DO NOTHING").run();
+      "INSERT INTO ai_daily_budget(provider,day,requests,units) VALUES ('openrouter-chat',CAST(unixepoch()/86400 AS INTEGER),1,2048) ON CONFLICT(provider,day) DO UPDATE SET requests=requests+1,units=units+2048 WHERE requests<5 AND units+2048<=10240").run();
     if (permitted.meta.changes !== 1) return null;
     const response = await globalThis.fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST', redirect: 'manual', signal: AbortSignal.timeout(8_000),
       headers: {Authorization: 'Bearer '+env.OPENROUTER_API_KEY, 'Content-Type': 'application/json'},
       body: JSON.stringify({
-        model: 'openrouter/free', max_tokens: 100,
+        model: 'openrouter/free', max_tokens: 550,
         provider: {max_price: {prompt: 0, completion: 0, request: 0}, data_collection: 'deny'},
-        messages: [{role: 'user', content: 'Suggest only a short generic heading for a static development preview in '+lang+'. No markdown.'}],
+        messages: [
+          {role: 'system', content: 'Draft a concise useful response in the same language as the request. No tools. Never claim any action was executed. For programming, provide a draft or scoped implementation steps. For reports, do not invent facts or measurements. Request category: '+kind},
+          {role: 'user', content: task.prompt},
+        ],
       }),
     });
     if (!response.ok) return null;
     const data = await response.json();
-    const title = data.choices?.[0]?.message?.content?.trim();
-    return data.usage?.cost === 0 && typeof title === 'string' && title.length <= 80 ? title : null;
+    const draft = data.choices?.[0]?.message?.content;
+    return data.usage?.cost === 0 && typeof draft === 'string' && draft.trim() && draft.length <= 6500 ? draft.trim() : null;
   } catch {
     return null;
   }
@@ -80,20 +83,21 @@ async function execute(env, owner, id) {
       await active();
       await store.renewLease(...args);
     }};
-    const arabic = /\p{Script=Arabic}/u.test(current.prompt);
+    const kind = taskKind(current.prompt);
     const generator = {async generate({phase}) {
       if (phase === 'plan') return {plan: {goal: current.prompt, steps: [
-        {id: 'inspect', kind: 'inspect', description: 'Read approved static preview request', dependsOn: []},
+        {id: 'inspect', kind: 'inspect', description: 'Interpret the request and choose its permitted path', dependsOn: []},
         {id: 'test', kind: 'test', description: 'Validate offline static markup', dependsOn: ['inspect']},
         {id: 'preview', kind: 'preview', description: 'Save preview for review', dependsOn: ['test']},
       ]}};
-      const heading = await suggestHeading(env, arabic ? 'Arabic' : 'English')
-        ?? (arabic ? 'معاينة طلب التطوير' : 'Development preview');
-      const attachment = current.attachment_name
-        ? '<section><h2>'+html(current.attachment_name)+'</h2><pre>'+html(current.attachment_text)+'</pre></section>' : '';
-      return {patches: [{path: 'app/index.html', content: '<!doctype html><html lang="'+(arabic ? 'ar' : 'en')+
-        '" dir="'+(arabic ? 'rtl' : 'ltr')+'"><meta charset="utf-8"><title>'+html(heading)+
-        '</title><main><h1>'+html(heading)+'</h1><p>'+html(current.prompt)+'</p>'+attachment+'</main></html>'}]};
+      let metrics;
+      if (kind === 'report') {
+        const rows = await statement(db, 'SELECT state,count(*) AS total FROM chat_tasks WHERE owner=? AND id<>? GROUP BY state', owner, id).all();
+        metrics = Object.fromEntries(rows.results.map(row => [row.state, row.total]));
+      }
+      const advice = await requestAdvice(env, current, kind);
+      const content = renderResult({task:current, kind, advice, metrics});
+      return {patches: [{path: 'app/index.html', content}]};
     }};
     const runner = createDevelopmentRunner({model: generator, executor: createStaticSandboxExecutor(), store: guarded});
     const args = {id, projectId, actorId: owner, prompt: current.prompt};
@@ -135,7 +139,7 @@ export async function chatRoute(request, env, context, headers) {
       const store = d1RunStore(db);
       const latest = await Promise.all(results.map(async row => {
         const run = await store.getRun(row.id, projectId);
-        return {...row, stage: run?.stage ?? null};
+        return {...row, kind: taskKind(row.prompt), stage: run?.stage ?? null};
       }));
       return reply({tasks: latest});
     }
@@ -143,17 +147,16 @@ export async function chatRoute(request, env, context, headers) {
       let payload;
       try { payload = await boundedJson(request); }
       catch (error) { return reply({error: 'invalid_input'}, error.message === 'input_too_large' ? 413 : 400); }
-      const {id, prompt, attachment} = payload ?? {};
+      const {id, prompt, attachment, allowAi} = payload ?? {};
       if (!uuid.test(id ?? '') || typeof prompt !== 'string' || !prompt.trim() || prompt.length > 2000) {
         return reply({error: 'invalid_input'}, 400);
       }
-      if (!supported.test(prompt)) return reply({error: 'unsupported_task'}, 422);
       if (attachment && (typeof attachment.name !== 'string' || attachment.name.length > 120 ||
         !/\.(txt|md|json|csv)$/i.test(attachment.name) || typeof attachment.text !== 'string' ||
         encoder.encode(attachment.text).byteLength > 4000)) return reply({error: 'invalid_attachment'}, 400);
       await statement(db,
-        "INSERT OR IGNORE INTO chat_tasks(id,owner,prompt,attachment_name,attachment_text,state) SELECT ?,?,?,?,?,'queued' WHERE (SELECT count(*) FROM chat_tasks WHERE owner=? AND created_at/86400=unixepoch()/86400)<12",
-        id, owner, prompt.trim(), attachment?.name ?? null, attachment?.text ?? null, owner).run();
+        "INSERT OR IGNORE INTO chat_tasks(id,owner,prompt,attachment_name,attachment_text,allow_ai,state) SELECT ?,?,?,?,?,?,'queued' WHERE (SELECT count(*) FROM chat_tasks WHERE owner=? AND created_at/86400=unixepoch()/86400)<12",
+        id, owner, prompt.trim(), attachment?.name ?? null, attachment?.text ?? null, allowAi === true ? 1 : 0, owner).run();
       if (!await internal(db, owner, id)) return reply({error: 'daily_limit'}, 429);
       await start(id);
       return reply({id}, 202);
@@ -169,7 +172,7 @@ export async function chatRoute(request, env, context, headers) {
         const preview = task.state === 'review' && await store.latestArtifact(id, projectId, 'preview');
         if (!preview) return reply({error: 'not_found'}, 404);
         return new Response(preview.html, {headers: {...headers, 'Content-Type': 'text/html; charset=utf-8',
-          'Content-Security-Policy': "sandbox; default-src 'none'; frame-ancestors 'none'"}});
+          'Content-Security-Policy': "sandbox; default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'"}});
       }
       const run = await store.getRun(id, projectId);
       const test = await store.latestArtifact(id, projectId, 'test');
